@@ -18,7 +18,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # Applies the repeatable schema and provisions the least-privilege app role.
+  # Initializes an empty schema once and reapplies restricted privileges atomically.
   db-bootstrap:
     image: postgres:16-alpine
     restart: "no"
@@ -31,11 +31,14 @@ services:
     volumes:
       - ./database/bootstrap-app-user.sql:/bootstrap/app-user.sql:ro
       - ./database/schema.sql:/bootstrap/schema.sql:ro
+      - ./database/bootstrap.sql:/bootstrap/bootstrap.sql:ro
+      - ./database/bootstrap-app-privileges.sql:/bootstrap/app-privileges.sql:ro
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - >-
-        psql -h postgres -U postgres -d securevault_db -v ON_ERROR_STOP=1 -f /bootstrap/app-user.sql;
-        psql -h postgres -U postgres -d securevault_db -v ON_ERROR_STOP=1 -f /bootstrap/schema.sql
+        sed '/^DROP TRIGGER IF EXISTS /d' /bootstrap/schema.sql > /tmp/schema-initial.sql;
+        psql -X -h postgres -U postgres -d securevault_db -v ON_ERROR_STOP=1
+        --single-transaction -f /bootstrap/bootstrap.sql
 
   # Unified Spring Boot Backend Service (Auth, Admin Dashboard API & Vault foundations)
   backend:
