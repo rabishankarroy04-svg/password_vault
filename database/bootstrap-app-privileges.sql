@@ -12,3 +12,6 @@ GRANT SELECT, INSERT ON audit_logs, security_event_history TO securevault_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO securevault_app;
 -- No broad defaults: future migrations must grant their own permissions.
 REVOKE ALL ON securevault_bootstrap_state FROM PUBLIC, securevault_app;
+
+-- Alert deletion would cascade away protected investigation history. No application API needs it.
+REVOKE DELETE ON security_events FROM securevault_app;

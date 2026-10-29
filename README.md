@@ -195,3 +195,9 @@ npm run build
 - `docs/schema.md` — database ERD and schema documentation.
 - `docs/work_tracker.md` — implementation status and follow-up work.
 - `docs/implementation_summary.md` — earlier `3-RABISHANKAR` contributions and the implementation included in this push.
+
+## Explainable multi-factor threat analytics
+
+See [enhancement scope, configuration, migration and demo guide](docs/THREAT-ANALYTICS-ENHANCEMENT.md) and [actual verification review](docs/THREAT-ANALYTICS-TEST-REVIEW.md). Existing installations require the reviewed additive threat-context migration before the updated backend starts. No live migration/reseed or account/MFA change was performed. Vault/sharing source operations remain integration dependencies; their absence must not be presented as confirmed zero threats.
+
+Reviewed, opt-in local deployment and separate rollback scripts are documented in [THREAT-DEPLOYMENT.md](docs/THREAT-DEPLOYMENT.md). They have only been syntax/mock-tested in PowerShell 5.1 and 7; no deployment was executed.

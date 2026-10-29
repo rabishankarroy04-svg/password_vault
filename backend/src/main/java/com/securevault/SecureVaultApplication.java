@@ -3,7 +3,7 @@ package com.securevault;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
-@SpringBootApplication
+@SpringBootApplication(excludeName = "org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration")
 public class SecureVaultApplication {
     public static void main(String[] args) {
         SpringApplication.run(SecureVaultApplication.class, args);

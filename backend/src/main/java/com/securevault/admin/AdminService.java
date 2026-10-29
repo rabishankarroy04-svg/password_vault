@@ -48,29 +48,14 @@ public class AdminService {
             + "FROM users u LEFT JOIN role_list ON role_list.user_id = u.id "
             + "LEFT JOIN risk_summary ON risk_summary.user_id = u.id ";
 
-    private static final String RELATED_EVENT_COUNT = "(CASE "
-            + "WHEN e.event_type = 'MULTIPLE_FAILED_LOGINS' THEN (SELECT COUNT(*) FROM security_events r "
-            + "WHERE r.event_type = 'FAILED_LOGIN' AND r.user_id IS NOT DISTINCT FROM e.user_id "
-            + "AND r.ip_address IS NOT DISTINCT FROM e.ip_address AND r.timestamp BETWEEN e.timestamp - INTERVAL '10 minutes' AND e.timestamp) "
-            + "WHEN e.event_type = 'REPEATED_ACCESS_DENIED' THEN (SELECT COUNT(*) FROM security_events r "
-            + "WHERE r.event_type = 'ACCESS_DENIED' AND r.ip_address = e.ip_address "
-            + "AND r.timestamp BETWEEN e.timestamp - INTERVAL '5 minutes' AND e.timestamp) "
-            + "WHEN e.event_type = 'SUSPICIOUS_VAULT_ACCESS' THEN (SELECT COUNT(*) FROM audit_logs l "
-            + "WHERE l.user_id IS NOT DISTINCT FROM e.user_id AND l.ip_address = e.ip_address "
-            + "AND l.status = 'SUCCESS' AND (l.action_type ILIKE 'VAULT_%' OR l.action_type ILIKE 'CREDENTIAL_%') "
-            + "AND l.timestamp BETWEEN e.timestamp - INTERVAL '5 minutes' AND e.timestamp) "
-            + "WHEN e.event_type IN ('NEW_DEVICE_LOGIN','NEW_IP_LOGIN','UNUSUAL_LOGIN_TIME') THEN (SELECT COUNT(*) FROM audit_logs l "
-            + "WHERE l.user_id = e.user_id AND l.ip_address = e.ip_address AND l.action_type = 'LOGIN' "
-            + "AND l.status = 'SUCCESS' AND l.timestamp BETWEEN e.timestamp - INTERVAL '10 minutes' AND e.timestamp) "
-            + "WHEN e.event_type = 'CREDENTIAL_SHARED' THEN (SELECT COUNT(*) FROM audit_logs l "
-            + "WHERE l.user_id IS NOT DISTINCT FROM e.user_id AND l.ip_address IS NOT DISTINCT FROM e.ip_address "
-            + "AND l.action_type ILIKE 'CREDENTIAL_SHARE%' AND l.status = 'SUCCESS' "
-            + "AND l.timestamp BETWEEN e.timestamp - INTERVAL '1 minute' AND e.timestamp + INTERVAL '1 minute') "
-            + "ELSE (SELECT COUNT(*) FROM security_events r WHERE r.id <> e.id "
-            + "AND r.user_id IS NOT DISTINCT FROM e.user_id AND r.ip_address IS NOT DISTINCT FROM e.ip_address "
-            + "AND r.event_type = e.event_type AND r.timestamp BETWEEN e.timestamp - INTERVAL '10 minutes' AND e.timestamp + INTERVAL '10 minutes') "
-            + "END) AS related_event_count ";
-
+    private static final String RELATED_EVENT_COUNT = "(SELECT COUNT(*) FROM securevault_alert_evidence(e.id)) AS related_event_count ";
+    private String deviceLocation(String value){var c=context(value);return Boolean.TRUE.equals(c.get("locationAvailable"))?c.get("country")+" / "+c.getOrDefault("region","")+" (approximate)":"Location unavailable";}
+    private Map<String,Object> context(String text){
+        if(text==null||text.isBlank())return Map.of();
+        try{return new tools.jackson.databind.json.JsonMapper().readValue(text,Map.class);}catch(Exception e){return Map.of();}
+    }
+    private com.securevault.threat.ThreatTelemetry telemetry;
+    @Autowired public void configureThreatTelemetry(com.securevault.threat.ThreatTelemetry telemetry){this.telemetry=telemetry;}
     private final JdbcTemplate jdbcTemplate;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
     private final int sessionLifetimeSeconds;
@@ -174,14 +159,16 @@ public class AdminService {
                         + "AND s.expires_at > CURRENT_TIMESTAMP) AS active_sessions, "
                         + "(SELECT s.ip_address FROM sessions s WHERE s.device_id = d.id "
                         + "ORDER BY s.created_at DESC LIMIT 1) AS last_ip, "
+                        + "(SELECT s.user_agent FROM sessions s WHERE s.device_id=d.id ORDER BY s.created_at DESC LIMIT 1) AS last_agent, "
+                        + "(SELECT l.context::text FROM audit_logs l WHERE l.user_id=d.user_id AND l.context->>'deviceId'=d.id::text ORDER BY l.timestamp DESC LIMIT 1) AS last_context, "
                         + "EXISTS (SELECT 1 FROM sessions s WHERE s.id = ? AND s.device_id = d.id) AS is_current "
                         + "FROM devices d WHERE d.user_id = ? ORDER BY d.last_active DESC",
                 (result, row) -> new DeviceView(
                         result.getObject("id", UUID.class),
                         result.getString("device_name"),
-                        "Not captured", "Not captured",
+                        com.securevault.threat.DeviceMetadata.parse(result.getString("last_agent")).os(), com.securevault.threat.DeviceMetadata.parse(result.getString("last_agent")).browser(),
                         result.getString("last_ip") == null ? "Not recorded" : result.getString("last_ip"),
-                        "Not captured", "Browser", "fa-solid fa-laptop",
+                        deviceLocation(result.getString("last_context")), com.securevault.threat.DeviceMetadata.parse(result.getString("last_agent")).category(), "fa-solid fa-laptop",
                         result.getBoolean("is_current"), instant(result, "last_active"),
                         instant(result, "created_at"),
                         summary.riskLevel().equals("HIGH") || summary.riskLevel().equals("CRITICAL"),
@@ -302,11 +289,15 @@ public class AdminService {
             }
             jdbcTemplate.update("DELETE FROM user_roles WHERE user_id = ?", targetId);
             jdbcTemplate.update("INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)", targetId, roleId);
+            if(telemetry!=null){telemetry.audit(actor.userId(),"USER_ROLE_CHANGED","SUCCESS",ipAddress,"Authorized role change; target referenced by opaque ID",
+                Map.of("targetUserId",targetId.toString(),"newRole",role,"previousRoles",currentRoles,"permissionEscalation",role.equals("ROLE_ADMIN")&&!currentRoles.contains("ROLE_ADMIN")));}
+            else {
             writeAudit(actor.userId(), "USER_ROLE_CHANGED", ipAddress,
                     "Admin " + actor.username() + " (" + actor.email() + ") changed account "
                             + targetId + " (" + targetIdentity[0] + ", " + targetIdentity[1] + ") from "
                             + String.join(",", currentRoles)
-                            + " to " + role);
+                            + " to " + role);            }
+
         }
 
         return jdbcTemplate.queryForObject(USER_CTES + USER_SELECT + "WHERE u.id = ?",
@@ -334,6 +325,13 @@ public class AdminService {
     }
 
     public PageData<ActivityRow> activities(String requestedSearch, int page, int size) {
+        return activities(requestedSearch,page,size,null,null,"ALL","NEWEST");
+    }
+    public PageData<ActivityRow> activities(String requestedSearch,int page,int size,LocalDate fromDate,LocalDate toDate,String type,String requestedSort){
+        if((fromDate==null)!=(toDate==null) || (fromDate!=null&&(fromDate.isAfter(toDate)||fromDate.isBefore(toDate.minusDays(365)))))throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Choose a valid date range of at most 366 days");
+        String eventType=type==null?"ALL":type.trim().toUpperCase(Locale.ROOT);
+        if(!eventType.matches("[A-Z_]{1,100}"))throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid event type");
+        String order="OLDEST".equalsIgnoreCase(requestedSort)?"ASC":"DESC";
         String search = safeSearch(requestedSearch);
         String like = "%" + search + "%";
         int safePage = Math.min(Math.max(page, 0), 100_000);
@@ -341,13 +339,14 @@ public class AdminService {
         int offset = safePage * safeSize;
         String from = " FROM audit_logs l LEFT JOIN users u ON u.id = l.user_id "
                 + "WHERE (? = '' OR COALESCE(u.username, 'system') ILIKE ? "
-                + "OR COALESCE(u.email, '') ILIKE ? OR l.action_type ILIKE ?) ";
+                + "OR COALESCE(u.email, '') ILIKE ? OR l.action_type ILIKE ?) "
+                + "AND (?::date IS NULL OR l.timestamp>=(?::date::timestamp AT TIME ZONE 'UTC')) AND (?::date IS NULL OR l.timestamp<((?::date+INTERVAL '1 day') AT TIME ZONE 'UTC')) AND (?='ALL' OR l.action_type=?) ";
         long total = jdbcTemplate.queryForObject("SELECT COUNT(*)" + from,
-                Long.class, search, like, like, like);
+                Long.class, search, like, like, like,fromDate,fromDate,toDate,toDate,eventType,eventType);
         List<ActivityRow> items = jdbcTemplate.query(
                 "SELECT l.id, COALESCE(u.username, 'System') AS username, COALESCE(u.email, '') AS email, "
-                        + "l.action_type, l.status, l.ip_address, l.details, l.timestamp " + from
-                        + "ORDER BY l.timestamp DESC LIMIT ? OFFSET ?",
+                        + "l.action_type, l.status, l.ip_address, l.details, l.timestamp, l.context " + from
+                        + "ORDER BY l.timestamp "+order+", l.id "+order+" LIMIT ? OFFSET ?",
                 (result, row) -> new ActivityRow(
                         result.getObject("id", UUID.class),
                         result.getString("username"),
@@ -356,8 +355,8 @@ public class AdminService {
                         "IP " + result.getString("ip_address"),
                         instant(result, "timestamp"),
                         "SUCCESS".equalsIgnoreCase(result.getString("status")) ? "Success" : "Review",
-                        initials(result.getString("username")), result.getString("details")),
-                search, like, like, like, safeSize, offset);
+                        initials(result.getString("username")), result.getString("details"), context(result.getString("context"))),
+                search, like, like, like,fromDate,fromDate,toDate,toDate,eventType,eventType,safeSize, offset);
         return new PageData<>(items, safePage, safeSize, total);
     }
 
@@ -397,7 +396,7 @@ public class AdminService {
                         + "COUNT(*) FILTER (WHERE UPPER(severity) = 'HIGH') AS high, "
                         + "COUNT(*) FILTER (WHERE UPPER(severity) = 'MEDIUM') AS medium, "
                         + "COUNT(*) FILTER (WHERE UPPER(severity) = 'LOW') AS low "
-                        + "FROM security_events WHERE timestamp >= ?::date AND timestamp < (?::date + INTERVAL '1 day') "
+                        + "FROM security_events WHERE timestamp >= (?::date::timestamp AT TIME ZONE 'UTC') AND timestamp < ((?::date + INTERVAL '1 day') AT TIME ZONE 'UTC') "
                         + "GROUP BY event_date ORDER BY event_date",
                 result -> {
                     LocalDate date = result.getObject("event_date", LocalDate.class);
@@ -410,7 +409,7 @@ public class AdminService {
             days.add(grouped.getOrDefault(date, new DailyMetric(date, 0, 0, 0, 0, 0)));
         }
         String eventFilters = " FROM security_events e LEFT JOIN users u ON u.id = e.user_id "
-                + "WHERE e.timestamp >= ?::date AND e.timestamp < (?::date + INTERVAL '1 day') "
+                + "WHERE e.timestamp >= (?::date::timestamp AT TIME ZONE 'UTC') AND e.timestamp < ((?::date + INTERVAL '1 day') AT TIME ZONE 'UTC') "
                 + "AND (? = '' OR e.event_type ILIKE ? OR COALESCE(e.alert_title, '') ILIKE ? "
                 + "OR COALESCE(e.detection_reason, '') ILIKE ? OR COALESCE(u.username, '') ILIKE ? "
                 + "OR COALESCE(u.email, '') ILIKE ? OR COALESCE(e.ip_address, '') ILIKE ?) "
@@ -418,7 +417,7 @@ public class AdminService {
         List<SecurityEventRow> events = jdbcTemplate.query(
                 "SELECT e.id, e.event_type, COALESCE(e.alert_title, INITCAP(REPLACE(e.event_type, '_', ' '))) AS alert_title, "
                         + "COALESCE(e.detection_reason, 'Detected by rule ' || e.event_type) AS detection_reason, "
-                        + "e.severity, e.risk_score, e.anomaly_detected, e.is_resolved, e.status, e.ip_address, e.timestamp, "
+                        + "e.severity, e.risk_score, e.anomaly_detected, e.is_resolved, e.status, e.ip_address, e.timestamp, e.detection_context, "
                         + "COALESCE(u.username, 'Unknown account') AS username, COALESCE(u.email, '') AS email, "
                         + RELATED_EVENT_COUNT + eventFilters
                         + "ORDER BY e.timestamp " + sort + ", e.id " + sort + " LIMIT ? OFFSET ?",
@@ -427,25 +426,25 @@ public class AdminService {
                         result.getString("event_type"), result.getString("alert_title"), result.getString("detection_reason"),
                         result.getString("severity"), result.getInt("risk_score"), result.getBoolean("anomaly_detected"),
                         result.getBoolean("is_resolved"), result.getString("status"), result.getString("ip_address"),
-                        instant(result, "timestamp"), result.getLong("related_event_count")),
+                        instant(result, "timestamp"), result.getLong("related_event_count"), context(result.getString("detection_context"))),
                 java.sql.Date.valueOf(fromDate), java.sql.Date.valueOf(toDate), search, like, like, like, like, like, like,
                 severity, severity, status, status, safeSize, offset);
         long eventTotal = queryCount("SELECT COUNT(*)" + eventFilters,
                 java.sql.Date.valueOf(fromDate), java.sql.Date.valueOf(toDate), search, like, like, like, like, like,
                 like, severity, severity, status, status);
-        long totalAlerts = queryCount("SELECT COUNT(*) FROM security_events WHERE timestamp >= ?::date "
-                        + "AND timestamp < (?::date + INTERVAL '1 day')", java.sql.Date.valueOf(fromDate), java.sql.Date.valueOf(toDate));
-        long highSeverity = queryCount("SELECT COUNT(*) FROM security_events WHERE timestamp >= ?::date "
-                        + "AND timestamp < (?::date + INTERVAL '1 day') AND UPPER(severity) IN ('HIGH','CRITICAL')",
+        long totalAlerts = queryCount("SELECT COUNT(*) FROM security_events WHERE timestamp >= (?::date::timestamp AT TIME ZONE 'UTC') "
+                        + "AND timestamp < ((?::date + INTERVAL '1 day') AT TIME ZONE 'UTC')", java.sql.Date.valueOf(fromDate), java.sql.Date.valueOf(toDate));
+        long highSeverity = queryCount("SELECT COUNT(*) FROM security_events WHERE timestamp >= (?::date::timestamp AT TIME ZONE 'UTC') "
+                        + "AND timestamp < ((?::date + INTERVAL '1 day') AT TIME ZONE 'UTC') AND UPPER(severity) IN ('HIGH','CRITICAL')",
                 java.sql.Date.valueOf(fromDate), java.sql.Date.valueOf(toDate));
         long failedLogins = queryCount("SELECT COUNT(*) FROM audit_logs WHERE action_type = 'LOGIN_FAILURE' "
-                        + "AND status = 'FAILURE' AND timestamp >= ?::date AND timestamp < (?::date + INTERVAL '1 day')",
+                        + "AND status = 'FAILURE' AND timestamp >= (?::date::timestamp AT TIME ZONE 'UTC') AND timestamp < ((?::date + INTERVAL '1 day') AT TIME ZONE 'UTC')",
                 java.sql.Date.valueOf(fromDate), java.sql.Date.valueOf(toDate));
-        long openInvestigations = queryCount("SELECT COUNT(*) FROM security_events WHERE timestamp >= ?::date "
-                        + "AND timestamp < (?::date + INTERVAL '1 day') AND UPPER(status) IN ('OPEN','INVESTIGATING')",
+        long openInvestigations = queryCount("SELECT COUNT(*) FROM security_events WHERE timestamp >= (?::date::timestamp AT TIME ZONE 'UTC') "
+                        + "AND timestamp < ((?::date + INTERVAL '1 day') AT TIME ZONE 'UTC') AND UPPER(status) IN ('OPEN','INVESTIGATING')",
                 java.sql.Date.valueOf(fromDate), java.sql.Date.valueOf(toDate));
-        long suspiciousActivities = queryCount("SELECT COUNT(*) FROM security_events WHERE timestamp >= ?::date "
-                        + "AND timestamp < (?::date + INTERVAL '1 day') AND anomaly_detected = TRUE",
+        long suspiciousActivities = queryCount("SELECT COUNT(*) FROM security_events WHERE timestamp >= (?::date::timestamp AT TIME ZONE 'UTC') "
+                        + "AND timestamp < ((?::date + INTERVAL '1 day') AT TIME ZONE 'UTC') AND anomaly_detected = TRUE",
                 java.sql.Date.valueOf(fromDate), java.sql.Date.valueOf(toDate));
         long unresolved = count("SELECT COUNT(*) FROM security_events WHERE is_resolved = FALSE");
         long critical = count("SELECT COUNT(*) FROM security_events WHERE is_resolved = FALSE AND UPPER(severity) = 'CRITICAL'");
@@ -462,14 +461,14 @@ public class AdminService {
                 unresolved, critical, high, medium, low, securityScore(), loginMonitoring,
                 passwordHealth, vaultMonitoring, recentAuthentication,
                 new ThreatRuleConfiguration(failedLoginAlertThreshold, failedLoginWindowMinutes,
-                        failedLoginAlertThreshold + 2));
+                        failedLoginAlertThreshold + 2), rangeMetrics(fromDate,toDate));
     }
 
     public SecurityEventDetails securityEvent(UUID eventId) {
         SecurityEventRow event = jdbcTemplate.queryForObject(
                 "SELECT e.id, e.event_type, COALESCE(e.alert_title, INITCAP(REPLACE(e.event_type, '_', ' '))) AS alert_title, "
                         + "COALESCE(e.detection_reason, 'Detected by rule ' || e.event_type) AS detection_reason, "
-                        + "e.severity, e.risk_score, e.anomaly_detected, e.is_resolved, e.status, e.ip_address, e.timestamp, "
+                        + "e.severity, e.risk_score, e.anomaly_detected, e.is_resolved, e.status, e.ip_address, e.timestamp, e.detection_context, "
                         + "COALESCE(u.username, 'Unknown account') AS username, COALESCE(u.email, '') AS email, "
                         + RELATED_EVENT_COUNT
                         + "FROM security_events e LEFT JOIN users u ON u.id = e.user_id WHERE e.id = ?",
@@ -478,24 +477,10 @@ public class AdminService {
                         result.getString("alert_title"), result.getString("detection_reason"), result.getString("severity"),
                         result.getInt("risk_score"), result.getBoolean("anomaly_detected"), result.getBoolean("is_resolved"),
                         result.getString("status"), result.getString("ip_address"), instant(result, "timestamp"),
-                        result.getLong("related_event_count")), eventId);
+                        result.getLong("related_event_count"), context(result.getString("detection_context"))), eventId);
         List<RelatedSecurityActivity> related = jdbcTemplate.query(
-                "SELECT id, action_type, status, ip_address, details, timestamp FROM audit_logs "
-                        + "WHERE (user_id = (SELECT user_id FROM security_events WHERE id = ?) OR "
-                        + "(user_id IS NULL AND ip_address = (SELECT ip_address FROM security_events WHERE id = ?))) "
-                        + "AND timestamp BETWEEN (SELECT timestamp - INTERVAL '10 minutes' FROM security_events WHERE id = ?) "
-                        + "AND (SELECT timestamp + INTERVAL '10 minutes' FROM security_events WHERE id = ?) "
-                        + "UNION ALL SELECT r.id, r.event_type AS action_type, UPPER(r.severity) AS status, r.ip_address, "
-                        + "COALESCE(r.detection_reason, r.alert_title, r.event_type) AS details, r.timestamp "
-                        + "FROM security_events r WHERE r.id <> ? AND (r.user_id = (SELECT user_id FROM security_events WHERE id = ?) "
-                        + "OR (r.user_id IS NULL AND r.ip_address = (SELECT ip_address FROM security_events WHERE id = ?))) "
-                        + "AND r.timestamp BETWEEN (SELECT timestamp - INTERVAL '10 minutes' FROM security_events WHERE id = ?) "
-                        + "AND (SELECT timestamp + INTERVAL '10 minutes' FROM security_events WHERE id = ?) "
-                        + "ORDER BY timestamp DESC LIMIT 100",
-                (result, row) -> new RelatedSecurityActivity(result.getObject("id", UUID.class),
-                        result.getString("action_type"), result.getString("status"), result.getString("ip_address"),
-                        result.getString("details"), instant(result, "timestamp")),
-                eventId, eventId, eventId, eventId, eventId, eventId, eventId, eventId, eventId);
+                "SELECT * FROM securevault_alert_evidence(?) ORDER BY timestamp DESC,id",
+                (result,row)->new RelatedSecurityActivity(result.getObject("id",UUID.class),result.getString("action_type"),result.getString("status"),result.getString("ip_address"),result.getString("details"),instant(result,"timestamp")),eventId);
         List<InvestigationAction> history = jdbcTemplate.query(
                 "SELECT h.previous_status, h.new_status, h.notes, h.created_at, COALESCE(u.username, 'System') AS reviewer "
                         + "FROM security_event_history h LEFT JOIN users u ON u.id = h.reviewer_id "
@@ -520,7 +505,7 @@ public class AdminService {
         }
         String notes = requestedNotes == null ? "" : requestedNotes.trim();
         if (notes.length() > 1000) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Notes must be 1000 characters or fewer.");
-        String previous = jdbcTemplate.query("SELECT status FROM security_events WHERE id = ?",
+        String previous = jdbcTemplate.query("SELECT status FROM security_events WHERE id = ? FOR UPDATE",
                 rs -> rs.next() ? rs.getString(1) : null, eventId);
         if (previous == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Security event was not found.");
         jdbcTemplate.update("UPDATE security_events SET status = ?, is_resolved = ?, resolution_notes = NULLIF(?, ''), "
@@ -550,9 +535,9 @@ public class AdminService {
         long uniqueIps7d = count("SELECT COUNT(DISTINCT ip_address) FROM audit_logs "
                 + "WHERE action_type IN ('LOGIN', 'LOGIN_FAILURE') AND ip_address <> 'unknown' "
                 + "AND timestamp >= CURRENT_TIMESTAMP - INTERVAL '7 days'");
-        long newDevices30d = count("SELECT COUNT(*) FROM security_events WHERE event_type = 'NEW_DEVICE_LOGIN' "
+        long newDevices30d = count("SELECT COUNT(*) FROM security_events WHERE (event_type = 'NEW_DEVICE_LOGIN' OR jsonb_exists(detection_context->'riskFactors','NEW_DEVICE_LOGIN')) "
                 + "AND timestamp >= CURRENT_TIMESTAMP - INTERVAL '30 days'");
-        long unusualHours30d = count("SELECT COUNT(*) FROM security_events WHERE event_type = 'UNUSUAL_LOGIN_TIME' "
+        long unusualHours30d = count("SELECT COUNT(*) FROM security_events WHERE (event_type = 'UNUSUAL_LOGIN_TIME' OR jsonb_exists(detection_context->'riskFactors','UNUSUAL_LOGIN_TIME')) "
                 + "AND timestamp >= CURRENT_TIMESTAMP - INTERVAL '30 days'");
         long repeatedFailures30d = count("SELECT COUNT(*) FROM security_events WHERE event_type = 'MULTIPLE_FAILED_LOGINS' "
                 + "AND timestamp >= CURRENT_TIMESTAMP - INTERVAL '30 days'");
@@ -595,7 +580,7 @@ public class AdminService {
                 "SELECT l.id, COALESCE(u.username, 'Unknown account') AS username, "
                         + "COALESCE(u.email, '') AS email, l.action_type, l.status, l.ip_address, l.details, l.timestamp "
                         + "FROM audit_logs l LEFT JOIN users u ON u.id = l.user_id "
-                        + "WHERE l.action_type IN ('LOGIN', 'LOGIN_FAILURE') "
+                        + "WHERE (l.action_type IN ('LOGIN','LOGIN_FAILURE','ACCESS_DENIED','USER_ROLE_CHANGED','VAULT_ACCESS_DENIED','CREDENTIAL_SHARED','SHARING_PERMISSION_CHANGED','NEW_DEVICE_LOGIN','NEW_IP_LOGIN','UNUSUAL_LOGIN_TIME') OR l.action_type LIKE 'LOGIN_MFA_%') "
                         + "ORDER BY l.timestamp DESC LIMIT ?",
                 (result, row) -> new ActivityRow(
                         result.getObject("id", UUID.class), result.getString("username"),
@@ -758,20 +743,32 @@ public class AdminService {
     public record SessionView(UUID id, String device, String ip, Instant loginTime, Instant expiresAt,
                               String logoutTime, String status, boolean active) {}
     public record ActivityRow(UUID id, String name, String email, String action,
-                              String device, Instant time, String status, String initials, String details) {}
+                              String device, Instant time, String status, String initials, String details,Map<String,Object> metadata) {
+        public ActivityRow(UUID id,String name,String email,String action,String device,Instant time,String status,String initials,String details){this(id,name,email,action,device,time,status,initials,details,Map.of());}
+    }
     public record VaultOverview(long vaultCount, long storedCredentials, long usersWithVault) {}
     public record DailyMetric(LocalDate date, long total, long critical, long high, long medium, long low) {}
     public record SecurityEventRow(UUID id, String username, String email, String eventType,
                                    String alertTitle, String detectionReason, String severity,
                                    int riskScore, boolean anomalyDetected, boolean resolved,
                                    String status, String ipAddress, Instant timestamp,
-                                   long relatedEventCount) {}
+                                   long relatedEventCount,Map<String,Object> detectionContext) {
+        public SecurityEventRow(UUID id,String username,String email,String eventType,String alertTitle,String detectionReason,String severity,int riskScore,boolean anomalyDetected,boolean resolved,String status,String ipAddress,Instant timestamp,long relatedEventCount){this(id,username,email,eventType,alertTitle,detectionReason,severity,riskScore,anomalyDetected,resolved,status,ipAddress,timestamp,relatedEventCount,Map.of());}
+    }
     public record AnalyticsOverview(List<DailyMetric> daily, List<SecurityEventRow> events,
                                     long eventsTotal, int eventsPage, int eventsSize, SecuritySummary summary,
                                     long unresolved, long critical, long high, long medium, long low,
                                     int securityScore, LoginMonitoring loginMonitoring,
                                     PasswordHealthSummary passwordHealth, VaultMonitoring vaultMonitoring,
-                                    List<ActivityRow> recentAuthentication, ThreatRuleConfiguration threatRules) {}
+                                    List<ActivityRow> recentAuthentication, ThreatRuleConfiguration threatRules, RangeMetrics rangeMetrics) {}
+    public record RangeMetrics(Map<String,Long> byThreatType,Map<String,Long> byStatus,long successfulLogins,long failedLogins,long newDeviceActivity,long deniedRequests){}
+    private RangeMetrics rangeMetrics(LocalDate from,LocalDate to){
+        var types=new java.util.LinkedHashMap<String,Long>();var statuses=new java.util.LinkedHashMap<String,Long>();
+        jdbcTemplate.query("SELECT event_type,COUNT(*) AS n FROM security_events WHERE timestamp>=(?::date::timestamp AT TIME ZONE 'UTC') AND timestamp<((?::date+INTERVAL '1 day') AT TIME ZONE 'UTC') GROUP BY event_type ORDER BY event_type",(org.springframework.jdbc.core.RowCallbackHandler) rs->types.put(rs.getString("event_type"),rs.getLong("n")),from,to);
+        jdbcTemplate.query("SELECT status,COUNT(*) AS n FROM security_events WHERE timestamp>=(?::date::timestamp AT TIME ZONE 'UTC') AND timestamp<((?::date+INTERVAL '1 day') AT TIME ZONE 'UTC') GROUP BY status ORDER BY status",(org.springframework.jdbc.core.RowCallbackHandler) rs->statuses.put(rs.getString("status"),rs.getLong("n")),from,to);
+        String filter=" FROM audit_logs WHERE action_type=? AND timestamp>=(?::date::timestamp AT TIME ZONE 'UTC') AND timestamp<((?::date+INTERVAL '1 day') AT TIME ZONE 'UTC')";
+        return new RangeMetrics(types,statuses,queryCount("SELECT COUNT(*)"+filter,"LOGIN",from,to),queryCount("SELECT COUNT(*)"+filter,"LOGIN_FAILURE",from,to),queryCount("SELECT COUNT(*)"+filter,"NEW_DEVICE_LOGIN",from,to),queryCount("SELECT COUNT(*)"+filter,"ACCESS_DENIED",from,to));
+    }
     public record ThreatRuleConfiguration(int failedLoginThreshold, int failedLoginWindowMinutes,
                                          int criticalEscalationThreshold) {}
     public record SecuritySummary(long totalAlerts, long highSeverityAlerts, long failedLoginAttempts,

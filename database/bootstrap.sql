@@ -35,7 +35,7 @@ SELECT to_regclass('public.securevault_bootstrap_state') IS NULL AS initialize \
             'vaults','vault_members','folders','categories','tags','credentials',
             'tag_mappings','attachments','sharing','audit_logs','security_events',
             'security_event_history','blocked_ips','notifications','password_health',
-            'login_stats','securevault_bootstrap_state'];
+            'login_stats','threat_detection_settings','securevault_bootstrap_state'];
     BEGIN
         IF (SELECT count(*) FROM securevault_bootstrap_state WHERE version = 1) <> 1
            OR EXISTS (SELECT 1 FROM unnest(expected) AS t(name)

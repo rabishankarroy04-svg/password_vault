@@ -161,8 +161,9 @@ export const revokeDevice = (userId, deviceId) => request(
   { method: 'POST' },
 );
 
-export const getActivities = ({ search = '', page = 0, size = 50 } = {}) => {
-  const query = new URLSearchParams({ search, page: String(page), size: String(size) });
+export const getActivities = ({ search = '', page = 0, size = 50, from, to, type = 'ALL', sort = 'NEWEST' } = {}) => {
+  const query = new URLSearchParams({ search, page: String(page), size: String(size), type, sort });
+  if(from) query.set('from',from); if(to) query.set('to',to);
   return request(`/api/admin/activities?${query}`);
 };
 

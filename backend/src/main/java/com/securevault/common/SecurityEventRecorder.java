@@ -9,6 +9,8 @@ import org.springframework.transaction.annotation.Transactional;
 /** Records minimal protected-resource denial telemetry without retaining credentials or tokens. */
 @Component
 public class SecurityEventRecorder {
+    private com.securevault.threat.ThreatTelemetry telemetry;
+    @org.springframework.beans.factory.annotation.Autowired public void configureThreatTelemetry(com.securevault.threat.ThreatTelemetry telemetry){this.telemetry=telemetry;}
     private static final int REPEATED_DENIAL_THRESHOLD = 5;
 
     private final JdbcTemplate jdbcTemplate;
@@ -20,8 +22,11 @@ public class SecurityEventRecorder {
     }
 
     @Transactional
-    public void recordAccessDenied(HttpServletRequest request) {
+    public void recordAccessDenied(HttpServletRequest request) { recordAccessDenied(request,null); }
+    @Transactional
+    public void recordAccessDenied(HttpServletRequest request,UUID verifiedUser) {
         String ip = clientIpResolver.resolve(request);
+        if(telemetry!=null){telemetry.denied(verifiedUser,ip,request.getHeader("User-Agent"));return;}
         jdbcTemplate.update("INSERT INTO security_events "
                         + "(event_type, severity, risk_score, anomaly_detected, ip_address, alert_title, detection_reason) "
                         + "VALUES ('ACCESS_DENIED', 'LOW', 20, FALSE, ?, 'Protected access denied', "

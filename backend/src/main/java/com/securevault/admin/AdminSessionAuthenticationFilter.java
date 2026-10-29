@@ -61,7 +61,11 @@ public class AdminSessionAuthenticationFilter extends OncePerRequestFilter {
                             userId, null, List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
                     SecurityContextHolder.getContext().setAuthentication(authentication);
                 } else {
-                    eventRecorder.recordAccessDenied(request);
+                    Integer validUser=jdbcTemplate.queryForObject("SELECT COUNT(*) FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.session_token=? AND s.user_id=? AND s.is_revoked=FALSE AND s.expires_at>CURRENT_TIMESTAMP AND u.is_active=TRUE",Integer.class,SessionTokenUtils.fingerprint(token),userId);
+                    if(validUser!=null&&validUser>0){
+                        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(userId,null,List.of(new SimpleGrantedAuthority("ROLE_USER"))));
+                        eventRecorder.recordAccessDenied(request,userId);
+                    }else eventRecorder.recordAccessDenied(request);
                 }
             } else {
                 eventRecorder.recordAccessDenied(request);

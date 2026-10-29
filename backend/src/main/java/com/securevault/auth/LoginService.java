@@ -32,6 +32,16 @@ public class LoginService {
     private static final int MFA_CHALLENGE_MINUTES = 5;
     private static final int MAX_EMAIL_CHALLENGES_PER_10_MINUTES = 3;
 
+    private com.securevault.threat.ThreatTelemetry telemetry;
+    @Autowired public void configureThreatTelemetry(com.securevault.threat.ThreatTelemetry telemetry){this.telemetry=telemetry;}
+    private int unusualStart=0,unusualEnd=5,unusualMinimumHistory=5,unusualCooldownHours=24;
+    @Autowired public void configureUnusualHours(org.springframework.core.env.Environment env){
+        unusualStart=env.getProperty("security.threat.unusual.start-utc-hour",Integer.class,0);
+        unusualEnd=env.getProperty("security.threat.unusual.end-utc-hour",Integer.class,5);
+        unusualMinimumHistory=env.getProperty("security.threat.unusual.minimum-history",Integer.class,5);
+        unusualCooldownHours=env.getProperty("security.threat.unusual.cooldown-hours",Integer.class,24);
+        if(unusualStart<0||unusualEnd>24||unusualStart>=unusualEnd||unusualMinimumHistory<1||unusualCooldownHours<1)throw new IllegalArgumentException("Invalid unusual-hour configuration");
+    }
     private final JdbcTemplate jdbcTemplate;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
     private final BCryptPasswordEncoder challengeCodeEncoder = new BCryptPasswordEncoder(10);
@@ -100,7 +110,7 @@ public class LoginService {
                                              String userAgent, String clientDeviceId) {
         if (password.getBytes(StandardCharsets.UTF_8).length > 72) {
             passwordEncoder.matches("invalid-password", dummyHash);
-            recordLoginFailure(null, ipAddress, 25, "MEDIUM");
+            recordLoginFailure(null, ipAddress, 25, "MEDIUM", userAgent);
             return failure(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "Username/email or password is incorrect.");
         }
         String identifier = requestedIdentifier.trim().toLowerCase(Locale.ROOT);
@@ -123,7 +133,7 @@ public class LoginService {
 
         if (matches.size() != 1) {
             passwordEncoder.matches(password, dummyHash);
-            recordLoginFailure(null, ipAddress, 25, "MEDIUM");
+            recordLoginFailure(null, ipAddress, 25, "MEDIUM", userAgent);
             return failure(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "Username/email or password is incorrect.");
         }
 
@@ -131,13 +141,13 @@ public class LoginService {
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         if (user.lockedUntil() != null && user.lockedUntil().isAfter(now)) {
             passwordEncoder.matches(password, dummyHash);
-            recordLoginFailure(user.id(), ipAddress, 100, "CRITICAL");
+            recordLoginFailure(user.id(), ipAddress, 100, "CRITICAL", userAgent);
             return failure(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "Username/email or password is incorrect.");
         }
 
         if (!user.isActive()) {
             passwordEncoder.matches(password, dummyHash);
-            recordLoginFailure(user.id(), ipAddress, 50, "HIGH");
+            recordLoginFailure(user.id(), ipAddress, 50, "HIGH", userAgent);
             return failure(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "Username/email or password is incorrect.");
         }
 
@@ -154,7 +164,7 @@ public class LoginService {
                     newAttempts, lockUntil, user.id());
             String severity = newAttempts >= MAX_FAILED_ATTEMPTS ? "CRITICAL"
                     : newAttempts >= 3 ? "HIGH" : "MEDIUM";
-            recordLoginFailure(user.id(), ipAddress, Math.min(100, newAttempts * 20), severity);
+            recordLoginFailure(user.id(), ipAddress, Math.min(100, newAttempts * 20), severity, userAgent);
             return failure(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "Username/email or password is incorrect.");
         }
 
@@ -220,14 +230,14 @@ public class LoginService {
             } catch (RuntimeException exception) {
                 jdbcTemplate.update("DELETE FROM login_mfa_challenges WHERE id = ?", challengeId);
                 writeLoginAudit(user.id(), "LOGIN_MFA_EMAIL_FAILURE", "FAILURE", ip,
-                        "Email verification could not be delivered");
+                        "Email verification could not be delivered",userAgent);
                 return failure(HttpStatus.SERVICE_UNAVAILABLE, "MFA_EMAIL_UNAVAILABLE",
                         "The email verification code could not be sent. Check email settings or use an authenticator app.");
             }
         }
 
         writeLoginAudit(user.id(), "LOGIN_MFA_CHALLENGE", "SUCCESS", ip,
-                "Sign-in verification requested using " + method);
+                "Sign-in verification requested using " + method,userAgent);
         MfaChallengeResponse challenge = new MfaChallengeResponse(
                 true, challengeId, method, "EMAIL".equals(method) ? maskEmail(user.email()) : null,
                 now.plusMinutes(MFA_CHALLENGE_MINUTES).toInstant());
@@ -302,7 +312,7 @@ public class LoginService {
             jdbcTemplate.update("UPDATE login_mfa_challenges SET attempt_count = ? WHERE id = ?",
                     failures, challenge.id());
             writeLoginAudit(challenge.userId(), "LOGIN_MFA_FAILURE", "FAILURE", ip,
-                    "Sign-in verification code rejected");
+                    "Sign-in verification code rejected",userAgent);
             if (failures >= 3) {
                 recordSecurityEvent(challenge.userId(), "MFA_FAILURE", failures >= MAX_MFA_ATTEMPTS
                         ? "CRITICAL" : "HIGH", failures >= MAX_MFA_ATTEMPTS ? 95 : 75, true, ip);
@@ -349,6 +359,8 @@ public class LoginService {
                         + "VALUES (?, ?, ?, ?, ?, ?)",
                 userId, device.id(), sessionFingerprint, safeIp(ipAddress), userAgent,
                 expiresAt.atOffset(ZoneOffset.UTC));
+        if(telemetry!=null){telemetry.login(userId,safeIp(ipAddress),userAgent,device.id(),device.created()||newDevice,newIp,unusualLogin);}
+        else {
         writeLoginAudit(userId, "LOGIN", "SUCCESS", safeIp(ipAddress),
                 "Successful sign in with " + factor + " verification");
         if (device.created() || newDevice) {
@@ -359,6 +371,7 @@ public class LoginService {
         }
         if (unusualLogin) {
             recordSecurityEvent(userId, "UNUSUAL_LOGIN_TIME", "MEDIUM", 50, true, ipAddress);
+        }
         }
         return new AuthenticationResult(true, HttpStatus.OK, null, null,
                 new AuthController.LoginResponse(token, "Bearer", expiresAt,
@@ -403,7 +416,12 @@ public class LoginService {
                 + "***" + email.substring(separator);
     }
 
+    private void writeLoginAudit(UUID userId,String action,String status,String ip,String details,String agent){
+        if(telemetry!=null){telemetry.audit(userId,action,status,safeIp(ip),details,telemetry.metadata(agent,null,"Unknown",safeIp(ip)));return;}
+        writeLoginAudit(userId,action,status,ip,details);
+    }
     private void writeLoginAudit(UUID userId, String action, String status, String ip, String details) {
+        if(telemetry!=null){telemetry.audit(userId,action,status,safeIp(ip),details,java.util.Map.of());return;}
         jdbcTemplate.update("INSERT INTO audit_logs (user_id, action_type, status, ip_address, details) "
                         + "VALUES (?, ?, ?, ?, ?)", userId, action, status, safeIp(ip), details);
     }
@@ -456,7 +474,8 @@ public class LoginService {
         return name.substring(0, Math.min(100, name.length()));
     }
 
-    private void recordLoginFailure(UUID userId, String ipAddress, int riskScore, String severity) {
+    private void recordLoginFailure(UUID userId, String ipAddress, int riskScore, String severity, String userAgent) {
+        if(telemetry!=null){telemetry.audit(userId,"LOGIN_FAILURE","FAILURE",safeIp(ipAddress),"Sign in rejected",telemetry.metadata(userAgent,null,"Unknown",safeIp(ipAddress)));telemetry.failed(userId,safeIp(ipAddress),failedLoginAlertThreshold,failedLoginWindowMinutes);return;}
         String ip = safeIp(ipAddress);
         jdbcTemplate.update(
                 "INSERT INTO audit_logs (user_id, action_type, status, ip_address, details) "
@@ -505,27 +524,34 @@ public class LoginService {
 
     private boolean isUnusualLoginTime(UUID userId, OffsetDateTime now) {
         int hourUtc = now.withOffsetSameInstant(ZoneOffset.UTC).getHour();
-        if (hourUtc < 0 || hourUtc >= 5) {
+        if (hourUtc < unusualStart || hourUtc >= unusualEnd) {
             return false;
         }
         long[] history = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*), COUNT(*) FILTER (WHERE EXTRACT(HOUR FROM timestamp AT TIME ZONE 'UTC') < 5) "
+                "SELECT COUNT(*), COUNT(*) FILTER (WHERE EXTRACT(HOUR FROM timestamp AT TIME ZONE 'UTC') >= ? AND EXTRACT(HOUR FROM timestamp AT TIME ZONE 'UTC') < ?) "
                         + "FROM audit_logs WHERE user_id = ? AND action_type = 'LOGIN' AND status = 'SUCCESS' "
                         + "AND timestamp >= ?",
                 (result, row) -> new long[] { result.getLong(1), result.getLong(2) },
-                userId, now.minusDays(30));
-        if (history == null || history[0] < 5 || history[1] > 0) {
+                unusualStart,unusualEnd,userId, now.minusDays(30));
+        if (history == null || history[0] < unusualMinimumHistory || history[1] > 0) {
             return false;
         }
         Long recentAlerts = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM security_events WHERE event_type = 'UNUSUAL_LOGIN_TIME' "
-                        + "AND timestamp >= CURRENT_TIMESTAMP - INTERVAL '24 hours' AND user_id = ?",
-                Long.class, userId);
+                "SELECT COUNT(*) FROM security_events WHERE (event_type = 'UNUSUAL_LOGIN_TIME' OR jsonb_exists(detection_context->'riskFactors','UNUSUAL_LOGIN_TIME')) "
+                        + "AND timestamp >= CURRENT_TIMESTAMP - (? * INTERVAL '1 hour') AND user_id = ?",
+                Long.class, unusualCooldownHours,userId);
         return recentAlerts == null || recentAlerts == 0;
     }
 
     private void recordSecurityEvent(UUID userId, String eventType, String severity,
                                      int riskScore, boolean anomaly, String ipAddress) {
+        if(telemetry!=null){
+            String action=eventType.equals("MFA_FAILURE")?"LOGIN_MFA_FAILURE":eventType;
+            var ids=telemetry.ids(userId,safeIp(ipAddress),action,5);
+            telemetry.raise(userId,safeIp(ipAddress),eventType,severity,riskScore,
+                "Rule "+eventType+": "+ids.size()+" relevant events in 5 minutes; MFA alert threshold 3 failures, CRITICAL at 5. Severity "+severity+"; verification codes omitted.",
+                java.util.Map.of("threshold",3,"windowMinutes",5,"eventCount",ids.size(),"riskFactors",java.util.List.of(eventType)),ids,5);return;
+        }
         jdbcTemplate.update(
                 "INSERT INTO security_events (user_id, event_type, severity, risk_score, anomaly_detected, ip_address, "
                         + "alert_title, detection_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

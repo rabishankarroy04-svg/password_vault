@@ -103,10 +103,12 @@ public class AdminController {
 
     @GetMapping("/activities")
     public AdminService.PageData<AdminService.ActivityRow> activities(
-            @RequestParam(defaultValue = "") String search,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "50") int size) {
-        return adminService.activities(search, page, size);
+            @RequestParam(defaultValue="") @Size(max=120) String search,
+            @RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="50") int size,
+            @RequestParam(required=false) @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required=false) @DateTimeFormat(iso=DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(defaultValue="ALL") String type,@RequestParam(defaultValue="NEWEST") String sort){
+        return adminService.activities(search,page,size,from,to,type,sort);
     }
 
     @GetMapping("/vaults/overview")
