@@ -2,6 +2,69 @@ package com.securevault.threat;
 import org.junit.jupiter.api.*;import org.springframework.jdbc.core.JdbcTemplate;import org.springframework.jdbc.datasource.DriverManagerDataSource;import org.springframework.jdbc.datasource.DataSourceTransactionManager;import org.springframework.transaction.support.TransactionTemplate;import org.springframework.mock.env.MockEnvironment;
 import java.util.*;import java.time.*;import com.securevault.admin.*;import static org.junit.jupiter.api.Assertions.*;
 class ThreatPostgresIT {
+ @Test void browserHttpLoginFailureReachesStoredAlertMetadata() throws Exception {
+  byte[] keyBytes=new byte[48];new java.security.SecureRandom().nextBytes(keyBytes);
+  String key=Base64.getEncoder().encodeToString(keyBytes);
+  var service=new com.securevault.auth.LoginService(jdbc,key,900);
+  service.configureThreatTelemetry(telemetry);
+  var controller=new com.securevault.auth.AuthController(null,service,jdbc);
+  var mvc=org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller)
+    .setControllerAdvice(new com.securevault.common.GlobalExceptionHandler()).build();
+  for(int i=0;i<4;i++){
+   tx.executeWithoutResult(status->{try{
+    mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/login")
+     .header("User-Agent","Mozilla/5.0 (Windows NT 10.0) Chrome/120")
+     .with(r->{r.setRemoteAddr(ip);return r;})
+     .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+     .content("{\"identifier\":\"fixture\",\"password\":\"synthetic-invalid-input\"}"))
+     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isUnauthorized());
+   }catch(Exception e){throw new RuntimeException(e);}});
+  }
+  assertEquals(4,jdbc.queryForObject("SELECT count(*) FROM audit_logs WHERE context->>'browser'='Chrome'",Integer.class));
+  var event=admin.securityEvent(alert()).event();assertEquals("Windows",event.detectionContext().get("os"));
+  assertEquals("BROWSER",event.detectionContext().get("userAgentStatus"));
+ }
+ @Test void browserFailureMetadataPersistsThroughEvidenceAlertAndAdminApi(){
+  atomic(()->{for(int i=0;i<4;i++){
+   telemetry.audit(user,"LOGIN_FAILURE","FAILURE",ip,"Fixture rejection",telemetry.metadata("Mozilla/5.0 (Windows NT 10.0) Chrome/120",null,"Unknown",ip));
+   telemetry.failed(user,ip,4,5);
+  }});
+  assertEquals("Windows",jdbc.queryForObject("SELECT context->>'os' FROM audit_logs LIMIT 1",String.class));
+  assertEquals("BROWSER",jdbc.queryForObject("SELECT detection_context->>'userAgentStatus' FROM security_events LIMIT 1",String.class));
+  var detail=admin.securityEvent(alert());assertEquals("Chrome",detail.event().detectionContext().get("browser"));
+  assertEquals("Not evaluated",detail.event().detectionContext().get("deviceStatus"));
+  assertEquals("Windows",admin.analytics().events().get(0).detectionContext().get("os"));
+ }
+ @Test void denialRecorderCarriesHttpAgentAndIpWithoutAssumingRecognition(){
+  var recorder=new com.securevault.common.SecurityEventRecorder(jdbc,com.securevault.common.ClientIpResolver.withoutTrustedProxies());
+  recorder.configureThreatTelemetry(telemetry);
+  var request=new org.springframework.mock.web.MockHttpServletRequest("GET","/api/admin/me");
+  request.setRemoteAddr(ip);request.addHeader("User-Agent","Mozilla/5.0 (X11; Linux x86_64) Firefox/120");
+  atomic(()->{for(int i=0;i<5;i++)recorder.recordAccessDenied(request);});
+  var d=admin.securityEvent(alert()).event();assertEquals(ip,d.ipAddress());
+  assertEquals("Linux",d.detectionContext().get("os"));assertEquals("Firefox",d.detectionContext().get("browser"));
+  assertEquals("Not evaluated",d.detectionContext().get("deviceStatus"));
+ }
+ @Test void adminUsesOnlyLinkedTriggerMetadataWithoutRewritingStoredSnapshots(){
+  UUID source=telemetry.audit(user,"LOGIN_FAILURE","FAILURE",ip,"Trigger",telemetry.metadata("Android Mobile Chrome/120",null,"Unknown",ip));
+  UUID id=UUID.randomUUID();
+  String snapshot=telemetry.encode(Map.of("evidenceAuditIds",List.of(source.toString())));
+  jdbc.update("INSERT INTO security_events(id,user_id,event_type,severity,risk_score,ip_address,detection_context) VALUES (?,?,'FIXTURE','HIGH',75,?,?::jsonb)",id,user,ip,snapshot);
+  telemetry.audit(user,"LOGIN","SUCCESS",ip,"Later event",telemetry.metadata("Windows Firefox/120",null,"Unknown",ip));
+  assertEquals("Android",admin.securityEvent(id).event().detectionContext().get("os"));
+  assertEquals("Chrome",admin.analytics().events().get(0).detectionContext().get("browser"));
+  assertNull(jdbc.queryForObject("SELECT detection_context->>'os' FROM security_events WHERE id=?",String.class,id));
+  jdbc.update("UPDATE security_events SET detection_context=detection_context||'{\"browser\":\"Stored browser\"}'::jsonb WHERE id=?",id);
+  assertEquals("Stored browser",admin.securityEvent(id).event().detectionContext().get("browser"));
+ }
+ @Test void missingAgentApiClientAndLegacyRemainDistinctAndNeverGainSessionMetadata(){
+  assertEquals("MISSING",telemetry.metadata(null,null,"Unknown",ip).get("userAgentStatus"));
+  assertEquals("NON_BROWSER",telemetry.metadata("curl/8",null,"Unknown",ip).get("userAgentStatus"));
+  jdbc.update("INSERT INTO security_events(user_id,event_type,severity,risk_score,ip_address) VALUES (?,'LEGACY','LOW',20,?)",user,ip);
+  telemetry.audit(user,"LOGIN","SUCCESS",ip,"Unrelated later browser",telemetry.metadata("Windows Chrome/120",null,"Unknown",ip));
+  assertTrue(admin.securityEvent(alert()).event().detectionContext().isEmpty());
+  assertNull(jdbc.queryForObject("SELECT detection_context FROM security_events LIMIT 1",String.class));
+ }
  JdbcTemplate jdbc;ThreatTelemetry telemetry;TransactionTemplate tx;AdminService admin;UUID user;String ip="8.8.8.8";
  @BeforeEach void setup(){
   String url=System.getenv("SECUREVAULT_TEST_PG_URL"),password=System.getenv("SECUREVAULT_TEST_PG_PASSWORD");

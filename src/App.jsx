@@ -1,6 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
 import { DeviceContext, RuleContext, AuditBrowser, RangeBreakdown } from "./ThreatContext";
+import SharingMonitor from './SharingMonitor';
+import {installWorkspaceBridge,notifyWorkspaceSignOut} from './workspaceBridge';
+import {acceptWorkspaceSession} from './adminApi';
 import MfaSettingsPanel from "./MfaSettingsPanel";
 import { exportAuditTrail } from "./auditExport";
 import {
@@ -229,6 +232,7 @@ function App() {
   const [authState, setAuthState] = useState("checking");
   const [authMessage, setAuthMessage] = useState("");
   const [admin, setAdmin] = useState(null);
+  useEffect(()=>installWorkspaceBridge(acceptWorkspaceSession,identity=>{setAdmin(identity);setAuthState('signed-in');},()=>{clearAdminSession();setAuthState('signed-out');}),[]);
   const [activePage, setActivePage] = useState("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -276,6 +280,7 @@ function App() {
     setAdmin(null);
     setAuthMessage(message);
     setAuthState("signed-out");
+    notifyWorkspaceSignOut();
   }, []);
 
   const handleRequestError = useCallback((error) => {
@@ -292,6 +297,7 @@ function App() {
 
   useEffect(() => {
     let mounted = true;
+    if(window.parent!==window){clearAdminSession();return()=>{mounted=false;};}
     let token = null;
     try { token = sessionStorage.getItem("securevault_admin_jwt"); } catch { /* storage unavailable */ }
     if (!token) {
@@ -377,7 +383,7 @@ function App() {
 
   const handleSignOut = async () => {
     try { await signOutAdmin(); } catch { clearAdminSession(); }
-    setAdmin(null); setSelectedUser(null); setAuthState("signed-out"); setActivePage("overview");
+    setAdmin(null); setSelectedUser(null); setAuthState("signed-out"); setActivePage("overview");notifyWorkspaceSignOut();
   };
 
   const navigate = (page) => {
@@ -535,7 +541,7 @@ function App() {
   }), [admin?.username]);
 
   if (authState === "checking") return <main className="admin-auth-screen"><div className="auth-checking"><span className="admin-brand-mark"><i className="fa-solid fa-shield-halved" /></span><i className="fa-solid fa-spinner fa-spin" /> Checking your administrator session…</div></main>;
-  if (authState !== "signed-in") return <AdminSignIn onSignedIn={handleSignIn} initialMessage={authMessage} />;
+  if (authState !== "signed-in") return window.parent!==window ? <main className="admin-auth-screen"><p>Administrator access could not be verified. Return to SecureVault sign in.</p></main> : <AdminSignIn onSignedIn={handleSignIn} initialMessage={authMessage} />;
 
   const pageTitle = pages[activePage];
   const activeEvents = analytics?.events?.filter((event) => !event.resolved) || [];
@@ -621,7 +627,7 @@ function App() {
         <article><span className="mini-stat-icon red"><i className="fa-solid fa-bug" /></span><div><small>Compromised passwords</small><strong>{formatCount(analytics?.passwordHealth?.compromisedPasswords)}</strong></div></article>
         <article><span className="mini-stat-icon blue"><i className="fa-solid fa-gauge-high" /></span><div><small>Average strength score</small><strong>{analytics?.passwordHealth?.averageStrength == null ? "—" : `${analytics.passwordHealth.averageStrength}%`}</strong></div></article>
       </div><p className="threat-footnote">Weak counts use stored strength metadata or health reports. Reuse and breach counts appear only when a password-health assessment has supplied them.</p></section>
-      <section className="panel threat-panel"><div className="panel-heading panel-heading-spaced"><div><span className="panel-eyebrow">VAULT ACCESS MONITORING</span><h2>Suspicious vault activity</h2><p>Vault and credential audit events are checked for security alerts.</p></div><span className={`coverage-pill ${analytics?.vaultMonitoring?.trackingActive ? "covered" : "limited"}`}>{analytics?.vaultMonitoring?.trackingActive ? "Audit history available" : "No vault events recorded"}</span></div><div className="threat-metric-grid vault-threat-grid"><article><span className="mini-stat-icon violet"><i className="fa-solid fa-vault" /></span><div><small>Vault/credential audit events</small><strong>{formatCount(analytics?.vaultMonitoring?.trackedEvents)}</strong></div></article><article><span className="mini-stat-icon red"><i className="fa-solid fa-shield-halved" /></span><div><small>Open suspicious-access alerts</small><strong>{formatCount(analytics?.vaultMonitoring?.suspiciousAlerts)}</strong></div></article></div><p className="threat-footnote">A burst of 20 successful vault or credential audit actions from one account and IP within five minutes creates a High alert. Credential access operations are not yet emitting audit events in this backend, so zero means no source data is available to analyze.</p></section>
+      <section className="panel threat-panel"><div className="panel-heading panel-heading-spaced"><div><span className="panel-eyebrow">VAULT ACCESS MONITORING</span><h2>Suspicious vault activity</h2><p>Vault and credential audit events are checked for security alerts.</p></div><span className={`coverage-pill ${analytics?.vaultMonitoring?.trackingActive ? "covered" : "limited"}`}>{analytics?.vaultMonitoring?.trackingActive ? "Audit history available" : "No vault events recorded"}</span></div><div className="threat-metric-grid vault-threat-grid"><article><span className="mini-stat-icon violet"><i className="fa-solid fa-vault" /></span><div><small>Vault/credential audit events</small><strong>{formatCount(analytics?.vaultMonitoring?.trackedEvents)}</strong></div></article><article><span className="mini-stat-icon red"><i className="fa-solid fa-shield-halved" /></span><div><small>Open suspicious-access alerts</small><strong>{formatCount(analytics?.vaultMonitoring?.suspiciousAlerts)}</strong></div></article></div><p className="threat-footnote">A burst of 20 successful vault or credential audit actions from one account and IP within five minutes creates a High alert. Credential reads, changes, deletions and sharing now emit metadata-only audit events. Denied access is recorded separately; a single normal share is not automatically a threat.</p></section>
       <p className="threat-footnote">The five summary cards and daily chart use the selected UTC date range. Security score, unresolved severity totals, password health and vault coverage are explicitly global; login-monitoring cards retain their labeled 24h/7d/30d windows. Location and device recognition are signals, not proof of compromise.</p><section className="mini-stat-grid severity-mini-grid">{Object.entries(unresolvedBySeverity).map(([severity, count]) => <article key={severity}><span className={`mini-stat-icon ${severity}`}><i className="fa-solid fa-bolt" /></span><div><small>{titleCase(severity)} alerts</small><strong>{formatCount(count)}</strong></div></article>)}</section>
       <section className="panel"><div className="panel-heading panel-heading-spaced"><div><span className="panel-eyebrow">SELECTED DATE RANGE</span><h2>Security events by severity</h2><p>Daily counts from {securityFrom} through {securityTo}.</p></div><span className="live-pill"><i /> LIVE DATA</span></div><RiskChart daily={analytics?.daily || []} /><div className="chart-legend"><span><i className="legend-dot critical" /> Critical</span><span><i className="legend-dot high" /> High</span><span><i className="legend-dot medium" /> Medium</span><span><i className="legend-dot low" /> Low</span></div></section>
       <section className="panel"><div className="panel-heading panel-heading-spaced"><div><span className="panel-eyebrow">INVESTIGATE</span><h2>Recent security alerts</h2><p>Search, filter, sort, inspect supporting activity, and record investigation outcomes.</p></div><span className="alert-total">{formatCount(analytics?.eventsTotal)}</span></div>
@@ -631,6 +637,7 @@ function App() {
       </section>
       <RangeBreakdown metrics={analytics?.rangeMetrics} />
       <AuditBrowser from={securityFrom} to={securityTo} />
+      <SharingMonitor />
     </div>
   );
 

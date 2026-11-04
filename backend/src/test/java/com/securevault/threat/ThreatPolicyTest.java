@@ -2,6 +2,16 @@ package com.securevault.threat;
 import org.junit.jupiter.api.*;import org.junit.jupiter.api.io.TempDir;import org.springframework.mock.env.MockEnvironment;
 import java.nio.file.*;import java.time.*;import java.util.*;import static org.junit.jupiter.api.Assertions.*;
 class ThreatPolicyTest {
+ @Test void absentUnknownAndApiAgentsAreDistinct(){
+  assertEquals("MISSING",DeviceMetadata.parse(null).userAgentStatus());
+  assertEquals("MISSING",DeviceMetadata.parse("  ").userAgentStatus());
+  assertEquals("UNRECOGNIZED",DeviceMetadata.parse("unidentified-client").userAgentStatus());
+  for(String agent:List.of("curl/8.1","PostmanRuntime/7","python-requests/2","Java/17 Linux")){
+   var d=DeviceMetadata.parse(agent);assertEquals("NON_BROWSER",d.userAgentStatus());
+   assertEquals("Unknown",d.os());assertEquals("Unknown",d.category());
+  }
+  assertEquals("BROWSER",DeviceMetadata.parse("Mozilla Windows NT 10.0 Chrome/120").userAgentStatus());
+ }
  @TempDir Path temp;
  @Test void desktopBrowserAndOsAreCoarseLabels(){var m=DeviceMetadata.parse("Mozilla Windows NT 10.0 Chrome/120 Edg/120");assertEquals("Edge",m.browser());assertEquals("Windows",m.os());assertEquals("Desktop/Laptop",m.category());}
  @Test void phoneTabletAndUnknownHandledWithoutPhysicalModelClaims(){assertEquals("Mobile",DeviceMetadata.parse("iPhone Mobile Safari/1").category());assertEquals("Tablet",DeviceMetadata.parse("Android Safari/1").category());assertEquals("Unknown",DeviceMetadata.parse(null).os());assertEquals("Firefox",DeviceMetadata.parse("Linux Firefox/123").browser());}

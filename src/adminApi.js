@@ -1,4 +1,5 @@
 const TOKEN_KEY = 'securevault_admin_jwt';
+export const getSharingMonitor = (params) => request(`/api/admin/sharing?${new URLSearchParams(params)}`);
 const USER_KEY = 'securevault_admin_user';
 const DEVICE_KEY = 'securevault_device_fingerprint_v1';
 
@@ -35,6 +36,12 @@ const readStoredToken = () => {
 const storeAdminSession = (token, user) => {
   sessionStorage.setItem(TOKEN_KEY, token);
   sessionStorage.setItem(USER_KEY, JSON.stringify(user));
+};
+
+export const acceptWorkspaceSession=async token=>{
+ const identity=await request('/api/admin/me',{token});
+ if(identity?.role!=='ROLE_ADMIN')throw new AdminApiError('Administrator access could not be verified.',403,'ADMIN_REQUIRED');
+ storeAdminSession(token,identity);return identity;
 };
 
 export const clearAdminSession = () => {

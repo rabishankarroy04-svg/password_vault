@@ -1,3 +1,4 @@
+@import './securevault-theme.css';
 :root {
   font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   color: #f1f5f9;
@@ -5,9 +6,9 @@
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  --admin-bg: #090d16;
-  --admin-panel: #101827;
-  --admin-panel-raised: #131e30;
+  --admin-bg: var(--sv-bg);
+  --admin-panel: var(--sv-panel);
+  --admin-panel-raised: var(--sv-raised);
   --admin-line: rgba(148, 163, 184, .13);
   --admin-line-strong: rgba(148, 163, 184, .21);
   --admin-text: #f1f5f9;
@@ -637,3 +638,4 @@ a { color: inherit; text-decoration: none; }
 .range-patterns meter::-moz-meter-bar { border-radius: inherit; background: var(--pattern-fill); }
 @media (max-width: 1200px) { .range-patterns .range-pattern-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } .range-patterns .range-pattern-charts { grid-template-columns: 1fr; gap: 18px; } }
 @media (max-width: 520px) { .range-patterns .range-pattern-metrics { grid-template-columns: 1fr; } }
+.sharing-monitor>label{display:flex;flex-direction:column;gap:7px;max-width:200px;color:var(--admin-subtle);font-size:10px;margin:18px 0;}.sharing-monitor select{background:#101b2c;border:1px solid var(--admin-line-strong);color:var(--admin-text);padding:10px 12px;border-radius:8px;}.sharing-monitor>button{background:#10283b;border:1px solid #224c65;color:#a8e4ff;border-radius:8px;padding:9px 12px;font-size:10px;margin:16px 8px 0 0;}

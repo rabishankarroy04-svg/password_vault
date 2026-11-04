@@ -123,7 +123,7 @@ export default function Register({ onRegisterSuccess, onNavigateLogin }) {
               <i className="fa-solid fa-shield-halved"></i>
             </div>
             <h2 className="brand-title">SecureVault</h2>
-            <p className="brand-subtitle">Create a local demo account</p>
+            <p className="brand-subtitle">Your private credential workspace</p>
           </div>
 
           <div className="shield-illustration">
@@ -153,11 +153,11 @@ export default function Register({ onRegisterSuccess, onNavigateLogin }) {
 
           <div className="zero-knowledge-box">
             <div className="zk-title">
-              <i className="fa-solid fa-lock"></i> Demo Security Status
+              <i className="fa-solid fa-lock"></i> Protected by design
             </div>
             <p className="zk-desc">
-              Passwords are sent to the authentication backend for BCrypt hashing. Vault encryption and key
-              derivation are not implemented in this demo; use HTTPS for any non-local deployment.
+              Your account password is hashed with BCrypt. Saved credential contents are encrypted on the server.
+              Use HTTPS outside local development. SecureVault is not a zero-knowledge vault.
             </p>
           </div>
 
@@ -171,7 +171,7 @@ export default function Register({ onRegisterSuccess, onNavigateLogin }) {
           <div className="form-content-area">
             <header className="form-header">
               <h1 className="form-heading">Create an Account</h1>
-              <p className="form-subheading">Create a local demo account</p>
+              <p className="form-subheading">Create your SecureVault account and organize your credentials.</p>
             </header>
 
             {statusMessage && (
@@ -223,7 +223,7 @@ export default function Register({ onRegisterSuccess, onNavigateLogin }) {
               </div>
 
               <div className="input-field-group">
-                <label htmlFor="reg-role">System Role (RBAC)</label>
+                <label htmlFor="reg-role">Account access</label>
                 <div className="input-wrapper">
                   <i className="fa-solid fa-shield-cat input-icon"></i>
                   <select
@@ -232,12 +232,12 @@ export default function Register({ onRegisterSuccess, onNavigateLogin }) {
                     value={formData.role}
                     onChange={handleChange}
                     className="select-input"
+                    disabled
                   >
-                    <option value="ROLE_USER">Individual Vault User (ROLE_USER)</option>
-                    <option value="ROLE_TEAM_MEMBER">Team Collaborator (ROLE_TEAM_MEMBER)</option>
-                    <option value="ROLE_ADMIN">Vault Administrator (ROLE_ADMIN)</option>
+                    <option value="ROLE_USER">Personal User Workspace</option>
                   </select>
                 </div>
+                <p className="registration-access-note">New accounts receive User access. Administrator access is managed by the server.</p>
               </div>
 
               <div className="input-field-group">

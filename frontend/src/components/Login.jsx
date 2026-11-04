@@ -45,7 +45,7 @@ export default function Login({ onLoginSuccess, onNavigateRegister }) {
       const user = result.data.user || { username: identifier.split('@')[0], email: identifier };
       setStatusMessage({
         type: 'success',
-        text: 'Login successful! Redirecting to the demo vault...',
+        text: 'Login successful! Opening your vault...',
       });
       setTimeout(() => {
         onLoginSuccess(user);
@@ -61,7 +61,7 @@ export default function Login({ onLoginSuccess, onNavigateRegister }) {
   const handleOAuthDemo = (provider) => {
     setStatusMessage({
       type: 'info',
-      text: `${provider} sign-in is not connected in this demo.`,
+        text: `${provider} sign-in is not configured for this deployment.`,
     });
   };
 
@@ -76,7 +76,7 @@ export default function Login({ onLoginSuccess, onNavigateRegister }) {
             </div>
             <h2 className="brand-title">SecureVault</h2>
             <p className="brand-subtitle">
-              Local Authentication & Vault Demo
+              Secure credential workspace
             </p>
           </div>
 
@@ -93,7 +93,7 @@ export default function Login({ onLoginSuccess, onNavigateRegister }) {
           <div className="feature-highlights">
             <div className="feature-item">
               <i className="fa-solid fa-lock"></i>
-              <span>Sample credential vault demo</span>
+              <span>Encrypted credential management</span>
             </div>
             <div className="feature-item">
               <i className="fa-solid fa-key"></i>
@@ -118,7 +118,7 @@ export default function Login({ onLoginSuccess, onNavigateRegister }) {
               <p className="form-subheading">{challenge?.method === 'EMAIL'
                 ? `A verification code was sent to ${challenge.maskedEmail}.`
                 : challenge ? 'Enter the current code from your authenticator app.'
-                  : 'Sign in to view the sample vault'}</p>
+                  : 'Sign in to your SecureVault workspace'}</p>
             </header>
 
             {statusMessage && (
@@ -171,7 +171,7 @@ export default function Login({ onLoginSuccess, onNavigateRegister }) {
                     onClick={() =>
                       setStatusMessage({
                         type: 'info',
-                        text: 'Password reset is not implemented in this demo.',
+                        text: 'Password recovery is not available. Contact your project administrator.',
                       })
                     }
                   >
@@ -227,7 +227,6 @@ export default function Login({ onLoginSuccess, onNavigateRegister }) {
                 className="social-btn"
                 onClick={() => handleOAuthDemo('Google')}
               >
-                <img src="/images/google.png" alt="Google" onError={(e) => (e.target.style.display = 'none')} />
                 <i className="fa-brands fa-google social-icon-fallback"></i>
                 <span>Google</span>
               </button>
@@ -236,7 +235,6 @@ export default function Login({ onLoginSuccess, onNavigateRegister }) {
                 className="social-btn"
                 onClick={() => handleOAuthDemo('Microsoft')}
               >
-                <img src="/images/microsoft.png" alt="Microsoft" onError={(e) => (e.target.style.display = 'none')} />
                 <i className="fa-brands fa-microsoft social-icon-fallback"></i>
                 <span>Microsoft</span>
               </button>

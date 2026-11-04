@@ -1,0 +1,23 @@
+/* Shared visual tokens. No authentication, API or role behavior lives in the theme. */
+:root {
+  --sv-font: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --sv-bg: #090d16;
+  --sv-sidebar: #0b1120;
+  --sv-panel: #101827;
+  --sv-raised: #131e30;
+  --sv-field: #0c1423;
+  --sv-line: rgba(148,163,184,.14);
+  --sv-line-strong: rgba(148,163,184,.24);
+  --sv-text: #f1f5f9;
+  --sv-subtle: #a4b0c2;
+  --sv-muted: #75839a;
+  --sv-blue: #3b82f6;
+  --sv-cyan: #22d3ee;
+  --sv-green: #34d399;
+  --sv-amber: #fbbf24;
+  --sv-red: #fb7185;
+  --sv-violet: #a78bfa;
+  --sv-gradient: linear-gradient(115deg,#2563eb,#0891b2);
+  --sv-card-gradient: linear-gradient(145deg,#111b2c,#0e1523);
+  --sv-radius: 14px;
+}

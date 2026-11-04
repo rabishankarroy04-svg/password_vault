@@ -41,7 +41,8 @@ SELECT to_regclass('public.securevault_bootstrap_state') IS NULL AS initialize \
            OR EXISTS (SELECT 1 FROM unnest(expected) AS t(name)
                       WHERE to_regclass('public.' || name) IS NULL)
            OR EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public'
-                      AND NOT (tablename = ANY(expected))) THEN
+                      AND NOT (tablename = ANY(expected))
+                      AND tablename NOT IN ('user_vault_categories','account_sensitive_attempts')) THEN
             RAISE EXCEPTION 'Unexpected or incomplete schema; manual migration required';
         END IF;
     END $$;

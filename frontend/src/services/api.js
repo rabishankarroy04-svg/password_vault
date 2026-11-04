@@ -1,3 +1,4 @@
+import {invalidateSession,isInvalidSession} from './session';
 /**
  * SecureVault API client for the unified Spring Boot service.
  */
@@ -156,7 +157,10 @@ async function accountMfaRequest(path, options = {}) {
   if (options.body != null) headers.set('Content-Type', 'application/json');
   const response = await fetch(path, { ...options, headers, cache: 'no-store' });
   const data = response.status === 204 ? null : await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data?.message || data?.error || 'Security settings could not be loaded.');
+  if (!response.ok) {
+    if(isInvalidSession(response.status,data?.code)) invalidateSession(token);
+    throw new Error(isInvalidSession(response.status,data?.code)?'Sign in again.':'Security verification could not be completed. Check your details and try again.');
+  }
   return data;
 }
 

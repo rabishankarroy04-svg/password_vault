@@ -16,6 +16,7 @@ class AdminThreatAuthorizationTest {
   mvc.perform(get("/api/admin/analytics")).andExpect(status().isUnauthorized());
   when(jdbc.queryForObject(contains("SELECT COUNT(*) FROM sessions s JOIN users u ON u.id=s.user_id"),eq(Integer.class),any(Object[].class))).thenReturn(1);
   mvc.perform(get("/api/admin/analytics").header("Authorization","Bearer "+token())).andExpect(status().isForbidden());verifyNoInteractions(admin);
+  mvc.perform(get("/api/admin/sharing").header("Authorization","Bearer "+token())).andExpect(status().isForbidden());
  }
  @Test void adminCanReadButForgedTokenCannot()throws Exception {
   when(jdbc.queryForObject(anyString(),eq(Integer.class),any(Object[].class))).thenReturn(1);

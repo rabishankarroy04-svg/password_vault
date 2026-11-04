@@ -3,8 +3,16 @@ import React, { useEffect, useState } from 'react';
 import { getActivities } from './adminApi';
 
 export function DeviceContext({ context = {} }) {
-
- return <small className="threat-context">{context.category || 'Unknown device'} · {context.os || 'Unknown OS'} · {context.browser || 'Unknown browser'} · {context.deviceStatus || 'Recognition unavailable'}
+ context = context || {};
+ const label = (value, fallback) => value && value !== 'Unknown' ? value : fallback;
+ const recorded = ['category', 'os', 'browser', 'deviceStatus'].some(key => key in context);
+ const reason = context.userAgentStatus === 'MISSING' ? 'User-Agent not supplied; device details unavailable.'
+  : context.userAgentStatus === 'NON_BROWSER' ? 'Non-browser API client reported; physical device and OS are not inferred.'
+  : context.userAgentStatus === 'UNRECOGNIZED' ? 'User-Agent format not recognized; only identifiable labels are shown.'
+  : !recorded ? 'Request metadata not recorded (legacy or uninstrumented event).'
+  : null;
+ return <small className="threat-context">{label(context.category, recorded ? 'Device unavailable' : 'Device not recorded')} · {label(context.os, recorded ? 'OS unavailable' : 'OS not recorded')} · {label(context.browser, recorded ? 'Browser unavailable' : 'Browser not recorded')} · {label(context.deviceStatus, recorded ? 'Recognition not evaluated' : 'Recognition not recorded')}
+ {reason && <span>{reason}</span>}
 
  <span>{context.locationAvailable ? `${context.country}${context.region ? ' / '+context.region : ''} (approximate, ${context.locationSource || 'configured provider'})` : 'Location unavailable'}</span>
 
@@ -37,6 +45,7 @@ function AuditRow({ item }) {
     <p><strong>Device recognition</strong><br/>{metadata.deviceStatus || 'Unknown'}</p>
     <p><strong>Location</strong><br/>{metadata.locationAvailable ? `${metadata.country}${metadata.region ? ' / ' + metadata.region : ''} (approximate)` : 'Location unavailable'}</p>
     {metadata.deviceId && <p><strong>Device reference</strong><br/>{metadata.deviceId}</p>}
+    {['credentialRef','shareRef','recipientRef','permission'].filter(key=>metadata[key]).map(key=><p key={key}><strong>{key}</strong><br/>{String(metadata[key])}</p>)}
    </div></details>
   </td>
  </tr>;

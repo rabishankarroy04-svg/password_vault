@@ -6,6 +6,23 @@ import { getActivities } from './adminApi';
 vi.mock('./adminApi', () => ({ getActivities: vi.fn() }));
 beforeEach(()=>{vi.clearAllMocks();getActivities.mockResolvedValue({items:[],page:0,size:10,total:0});});
 afterEach(cleanup);
+test.each([
+ [{}, /Request metadata not recorded/, /Device not recorded/],
+ [{category:'Unknown',userAgentStatus:'MISSING'}, /User-Agent not supplied/, /Device unavailable/],
+ [{category:'Unknown',userAgentStatus:'NON_BROWSER'}, /Non-browser API client/, /Device unavailable/],
+ [{category:'Unknown',userAgentStatus:'UNRECOGNIZED'}, /User-Agent format not recognized/, /Device unavailable/],
+])('missing and legacy device context is explained without invented labels', (context, reason, label)=>{
+ render(<DeviceContext context={context}/>);
+ expect(screen.getByText(reason)).toBeInTheDocument();expect(screen.getByText(label)).toBeInTheDocument();
+ expect(screen.queryByText(/Windows|Chrome|Android|Previously Recognized/)).not.toBeInTheDocument();
+});
+test('null context is safe and stored browser labels do not imply recognition',()=>{
+ const {rerender}=render(<DeviceContext context={null}/>);
+ expect(screen.getByText(/Request metadata not recorded/)).toBeInTheDocument();
+ rerender(<DeviceContext context={{category:'Desktop/Laptop',os:'Windows',browser:'Chrome',userAgentStatus:'BROWSER',deviceStatus:'Not evaluated'}}/>);
+ expect(screen.getByText(/Desktop\/Laptop.*Windows.*Chrome.*Not evaluated/)).toBeInTheDocument();
+ expect(screen.queryByText(/Previously Recognized/)).not.toBeInTheDocument();
+});
 test('device metadata is coarse and missing location is explicitly unavailable',()=>{
  render(<DeviceContext context={{category:'Mobile',os:'Android',browser:'Chrome',deviceStatus:'New'}}/>);
  expect(screen.getByText(/Mobile.*Android.*Chrome/)).toBeInTheDocument();expect(screen.getByText('Location unavailable')).toBeInTheDocument();

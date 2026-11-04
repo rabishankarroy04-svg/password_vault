@@ -6,7 +6,7 @@ export default function Navbar({ activeView, setActiveView, currentUser, onLogou
       <div className="nav-container">
         <div className="nav-brand" onClick={() => setActiveView(currentUser ? 'vault' : 'login')}>
           <div className="brand-logo-icon">
-            <i className="fa-solid fa-shield-halved"></i>
+              <i className="fa-solid fa-shield-halved" aria-hidden="true"></i>
           </div>
           <div className="brand-text">
             <span className="brand-name">SecureVault</span>
@@ -21,19 +21,13 @@ export default function Navbar({ activeView, setActiveView, currentUser, onLogou
                 className={`nav-link-btn ${activeView === 'login' ? 'active' : ''}`}
                 onClick={() => setActiveView('login')}
               >
-                <i className="fa-solid fa-right-to-bracket"></i> Login
+                <i className="fa-solid fa-right-to-bracket" aria-hidden="true"></i> Login
               </button>
               <button
                 className={`nav-link-btn ${activeView === 'register' ? 'active' : ''}`}
                 onClick={() => setActiveView('register')}
               >
-                <i className="fa-solid fa-user-plus"></i> Register
-              </button>
-              <button
-                className={`nav-link-btn preview-badge ${activeView === 'vault' ? 'active' : ''}`}
-                onClick={() => setActiveView('vault')}
-              >
-                <i className="fa-solid fa-vault"></i> Vault Demo
+                <i className="fa-solid fa-user-plus" aria-hidden="true"></i> Register
               </button>
             </>
           ) : (
@@ -42,10 +36,10 @@ export default function Navbar({ activeView, setActiveView, currentUser, onLogou
                 className={`nav-link-btn ${activeView === 'vault' ? 'active' : ''}`}
                 onClick={() => setActiveView('vault')}
               >
-                <i className="fa-solid fa-vault"></i> My Vault
+                <i className="fa-solid fa-vault" aria-hidden="true"></i> My Vault
               </button>
               <div className="user-profile-pill">
-                <i className="fa-solid fa-circle-user"></i>
+                <i className="fa-solid fa-circle-user" aria-hidden="true"></i>
                 <span className="user-name">{currentUser.username || currentUser.email}</span>
               </div>
               <button className="logout-btn" onClick={onLogout} aria-label="Sign out" title="Sign out">

@@ -4,6 +4,7 @@ import tools.jackson.databind.json.JsonMapper;
 import org.springframework.jdbc.core.JdbcTemplate;import org.springframework.stereotype.Component;import org.springframework.beans.factory.annotation.Value;
 @Component
 public class ThreatTelemetry {
+ public static final List<String> DEVICE_CONTEXT_FIELDS=List.of("category","os","browser","userAgentStatus","deviceStatus","deviceId","locationAvailable","country","region","locationSource");
  private final JdbcTemplate jdbc;private final RiskPolicy policy;private final LocationProvider locations;
  private final int deniedThreshold,deniedWindow,deniedCooldown;
  private final JsonMapper json=JsonMapper.builder().build();
@@ -15,7 +16,8 @@ public class ThreatTelemetry {
  public String encode(Object v){return json.writeValueAsString(v);}
  public Map<String,Object> metadata(String agent,String deviceId,String state,String ip){
   var d=DeviceMetadata.parse(agent);var m=new LinkedHashMap<String,Object>();
-  m.put("category",d.category());m.put("os",d.os());m.put("browser",d.browser());m.put("deviceStatus",state);
+  m.put("category",d.category());m.put("os",d.os());m.put("browser",d.browser());m.put("userAgentStatus",d.userAgentStatus());
+  m.put("deviceStatus",deviceId==null?"Not evaluated":state);
   if(deviceId!=null)m.put("deviceId",deviceId);
   var location=locations.lookup(ip);m.put("locationAvailable",location.isPresent());
   location.ifPresent(l->{m.put("country",l.country());m.put("region",l.region());m.put("locationSource",l.source());});
@@ -78,7 +80,7 @@ public class ThreatTelemetry {
   var out=new LinkedHashMap<String,Object>();
   if(!evidence.isEmpty()){
    String encoded=jdbc.queryForObject("SELECT context::text FROM audit_logs WHERE id=?",String.class,evidence.get(evidence.size()-1));
-   if(encoded!=null){var source=json.readValue(encoded,Map.class);for(String key:List.of("category","os","browser","deviceStatus","deviceId","locationAvailable","country","region","locationSource")){if(source.containsKey(key))out.put(key,source.get(key));}}
+   if(encoded!=null){var source=json.readValue(encoded,Map.class);for(String key:DEVICE_CONTEXT_FIELDS){if(source.containsKey(key))out.put(key,source.get(key));}}
   }
   out.putAll(context);return out;
  }

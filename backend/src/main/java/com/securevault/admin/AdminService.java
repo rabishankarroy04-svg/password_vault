@@ -54,6 +54,22 @@ public class AdminService {
         if(text==null||text.isBlank())return Map.of();
         try{return new tools.jackson.databind.json.JsonMapper().readValue(text,Map.class);}catch(Exception e){return Map.of();}
     }
+    // Read only the last explicitly linked triggering event; never infer history from later sessions.
+    private Map<String,Object> alertContext(String text){
+        var snapshot=new java.util.LinkedHashMap<String,Object>(context(text));
+        if(snapshot.keySet().containsAll(List.of("category","os","browser","userAgentStatus","deviceStatus")))return snapshot;
+        if(!(snapshot.get("evidenceAuditIds") instanceof List<?> ids)||ids.isEmpty())return snapshot;
+        UUID source;
+        try{source=UUID.fromString(String.valueOf(ids.get(ids.size()-1)));}catch(IllegalArgumentException e){return snapshot;}
+        var stored=jdbcTemplate.query("SELECT context::text FROM audit_logs WHERE id=?",(rs,n)->rs.getString(1),source);
+        if(!stored.isEmpty()){
+            var metadata=context(stored.get(0));
+            for(String field:com.securevault.threat.ThreatTelemetry.DEVICE_CONTEXT_FIELDS){
+                if(metadata.containsKey(field))snapshot.putIfAbsent(field,metadata.get(field));
+            }
+        }
+        return snapshot;
+    }
     private com.securevault.threat.ThreatTelemetry telemetry;
     @Autowired public void configureThreatTelemetry(com.securevault.threat.ThreatTelemetry telemetry){this.telemetry=telemetry;}
     private final JdbcTemplate jdbcTemplate;
@@ -426,7 +442,7 @@ public class AdminService {
                         result.getString("event_type"), result.getString("alert_title"), result.getString("detection_reason"),
                         result.getString("severity"), result.getInt("risk_score"), result.getBoolean("anomaly_detected"),
                         result.getBoolean("is_resolved"), result.getString("status"), result.getString("ip_address"),
-                        instant(result, "timestamp"), result.getLong("related_event_count"), context(result.getString("detection_context"))),
+                        instant(result, "timestamp"), result.getLong("related_event_count"), alertContext(result.getString("detection_context"))),
                 java.sql.Date.valueOf(fromDate), java.sql.Date.valueOf(toDate), search, like, like, like, like, like, like,
                 severity, severity, status, status, safeSize, offset);
         long eventTotal = queryCount("SELECT COUNT(*)" + eventFilters,
@@ -477,7 +493,7 @@ public class AdminService {
                         result.getString("alert_title"), result.getString("detection_reason"), result.getString("severity"),
                         result.getInt("risk_score"), result.getBoolean("anomaly_detected"), result.getBoolean("is_resolved"),
                         result.getString("status"), result.getString("ip_address"), instant(result, "timestamp"),
-                        result.getLong("related_event_count"), context(result.getString("detection_context"))), eventId);
+                        result.getLong("related_event_count"), alertContext(result.getString("detection_context"))), eventId);
         List<RelatedSecurityActivity> related = jdbcTemplate.query(
                 "SELECT * FROM securevault_alert_evidence(?) ORDER BY timestamp DESC,id",
                 (result,row)->new RelatedSecurityActivity(result.getObject("id",UUID.class),result.getString("action_type"),result.getString("status"),result.getString("ip_address"),result.getString("details"),instant(result,"timestamp")),eventId);
