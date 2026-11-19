@@ -1,0 +1,45 @@
+# Private configuration
+.env
+.env.*
+!.env.example
+*.env
+!*.env.example
+*.local.yml
+!compose.local.yml
+config/private/
+# Dependencies and generated outputs
+**/node_modules/
+**/target/
+**/dist/
+**/build/
+**/coverage/
+**/.vite/
+**/.vite-temp/
+.pnp.*
+# Local tools, caches and logs
+.tools/
+.idea/
+.vscode/
+__pycache__/
+*.log
+*.tmp
+*.temp
+*.swp
+.DS_Store
+Thumbs.db
+# Backups, archives and keys
+backups/
+*.dump
+*.backup
+*.bak
+*.sql.gz
+*.zip
+*.7z
+*.tar
+*.tgz
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore

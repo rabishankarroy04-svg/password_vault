@@ -1,0 +1,26 @@
+\getenv app_password SECUREVAULT_DB_APP_PASSWORD
+
+SELECT format(
+    'CREATE ROLE securevault_app LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS',
+    :'app_password')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'securevault_app')
+\gexec
+
+ALTER ROLE securevault_app LOGIN PASSWORD :'app_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+GRANT CONNECT ON DATABASE securevault_db TO securevault_app;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+GRANT USAGE ON SCHEMA public TO securevault_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO securevault_app;
+DO $guard$ BEGIN
+  IF to_regclass('public.audit_logs') IS NOT NULL THEN
+    REVOKE UPDATE, DELETE ON audit_logs FROM securevault_app;
+  END IF;
+  IF to_regclass('public.security_event_history') IS NOT NULL THEN
+    REVOKE UPDATE, DELETE ON security_event_history FROM securevault_app;
+  END IF;
+END $guard$;
+GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO securevault_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO securevault_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+    GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO securevault_app;
