@@ -12,10 +12,18 @@ services:
         value: 0.0.0.0
       - key: SPRING_SQL_INIT_MODE
         value: always
-      - key: SPRING_DATASOURCE_URL
+      - key: DB_HOST
         fromDatabase:
           name: securevault-postgres
-          property: connectionString
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: securevault-postgres
+          property: port
+      - key: DB_NAME
+        fromDatabase:
+          name: securevault-postgres
+          property: database
       - key: SPRING_DATASOURCE_USERNAME
         fromDatabase:
           name: securevault-postgres
@@ -24,6 +32,8 @@ services:
         fromDatabase:
           name: securevault-postgres
           property: password
+      - key: SPRING_DATASOURCE_URL
+        value: jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_NAME}
       - key: JWT_SECRET_BASE64
         generateValue: true
       - key: MFA_ENCRYPTION_KEY_BASE64
@@ -31,15 +41,9 @@ services:
       - key: VAULT_ENCRYPTION_KEY_BASE64
         generateValue: true
       - key: SECUREVAULT_EXTERNAL_BASE_URL
-        fromService:
-          type: web
-          name: securevault-frontend
-          property: host
+        value: https://securevault-frontend.onrender.com
       - key: SECUREVAULT_CORS_ALLOWED_ORIGINS
-        fromService:
-          type: web
-          name: securevault-frontend
-          property: host
+        value: https://securevault-frontend.onrender.com,http://localhost:3000,http://127.0.0.1:3000,http://localhost:4300,http://127.0.0.1:4300
       - key: SPRING_MAIL_HOST
         value: smtp.gmail.com
       - key: SPRING_MAIL_PORT
