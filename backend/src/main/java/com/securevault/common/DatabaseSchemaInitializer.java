@@ -16,18 +16,22 @@ import org.springframework.stereotype.Component;
 /**
  * Executes db/schema.sql using native PostgreSQL JDBC execution.
  * Bypasses Spring's ScriptUtils which cannot parse PL/pgSQL dollar-quoted blocks ($$).
+ * Also supports automated database reset when SECUREVAULT_SCHEMA_RESET=true.
  */
 @Component
 public class DatabaseSchemaInitializer implements InitializingBean {
     private static final Logger log = LoggerFactory.getLogger(DatabaseSchemaInitializer.class);
     private final DataSource dataSource;
     private final boolean shouldInitialize;
+    private final boolean resetSchema;
 
     public DatabaseSchemaInitializer(
             ObjectProvider<DataSource> dataSourceProvider,
-            @Value("${securevault.schema.auto-init:always}") String initMode) {
+            @Value("${securevault.schema.auto-init:always}") String initMode,
+            @Value("${securevault.schema.reset:${SECUREVAULT_SCHEMA_RESET:false}}") boolean resetSchema) {
         this.dataSource = dataSourceProvider.getIfAvailable();
         this.shouldInitialize = "always".equalsIgnoreCase(initMode);
+        this.resetSchema = resetSchema;
     }
 
     @Override
@@ -35,12 +39,23 @@ public class DatabaseSchemaInitializer implements InitializingBean {
         if (!shouldInitialize || dataSource == null) {
             return;
         }
-        log.info("Executing native PostgreSQL schema initialization from db/schema.sql...");
-        try (InputStream in = new ClassPathResource("db/schema.sql").getInputStream();
-             Connection conn = dataSource.getConnection();
+
+        try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
-            String sql = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-            stmt.execute(sql);
+
+            if (resetSchema) {
+                log.warn("==================================================================");
+                log.warn("SECUREVAULT_SCHEMA_RESET IS TRUE: Dropping and recreating public schema...");
+                log.warn("==================================================================");
+                stmt.execute("DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO public;");
+                log.info("Public schema dropped and recreated successfully.");
+            }
+
+            log.info("Executing native PostgreSQL schema initialization from db/schema.sql...");
+            try (InputStream in = new ClassPathResource("db/schema.sql").getInputStream()) {
+                String sql = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+                stmt.execute(sql);
+            }
             log.info("PostgreSQL schema initialization completed successfully.");
         } catch (Exception e) {
             log.error("Failed to execute database schema: {}", e.getMessage(), e);

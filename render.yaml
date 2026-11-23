@@ -58,6 +58,14 @@ services:
         sync: false
       - key: SECUREVAULT_MAIL_FROM
         sync: false
+      - key: SECUREVAULT_SCHEMA_RESET
+        value: "false"
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM
+        sync: false
+      - key: BREVO_API_KEY
+        sync: false
 
   # 2. React + Vite Frontend (Free Static Hosting)
   - type: web
