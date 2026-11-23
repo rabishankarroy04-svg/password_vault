@@ -215,7 +215,6 @@ CREATE TABLE IF NOT EXISTS security_event_history (
     notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-REVOKE UPDATE, DELETE ON security_event_history FROM securevault_app;
 
 -- Keep existing installations compatible as threat statuses are introduced.
 ALTER TABLE security_events ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'OPEN';

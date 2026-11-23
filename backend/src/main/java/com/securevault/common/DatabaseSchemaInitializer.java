@@ -7,19 +7,18 @@ import java.sql.Statement;
 import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.ApplicationArguments;
-import org.springframework.boot.ApplicationRunner;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
 /**
- * Executes schema.sql using native PostgreSQL JDBC execution.
+ * Executes db/schema.sql using native PostgreSQL JDBC execution.
  * Bypasses Spring's ScriptUtils which cannot parse PL/pgSQL dollar-quoted blocks ($$).
  */
 @Component
-public class DatabaseSchemaInitializer implements ApplicationRunner {
+public class DatabaseSchemaInitializer implements InitializingBean {
     private static final Logger log = LoggerFactory.getLogger(DatabaseSchemaInitializer.class);
     private final DataSource dataSource;
     private final boolean shouldInitialize;
@@ -32,12 +31,12 @@ public class DatabaseSchemaInitializer implements ApplicationRunner {
     }
 
     @Override
-    public void run(ApplicationArguments args) {
+    public void afterPropertiesSet() {
         if (!shouldInitialize || dataSource == null) {
             return;
         }
-        log.info("Executing native PostgreSQL schema initialization...");
-        try (InputStream in = new ClassPathResource("schema.sql").getInputStream();
+        log.info("Executing native PostgreSQL schema initialization from db/schema.sql...");
+        try (InputStream in = new ClassPathResource("db/schema.sql").getInputStream();
              Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
             String sql = new String(in.readAllBytes(), StandardCharsets.UTF_8);
