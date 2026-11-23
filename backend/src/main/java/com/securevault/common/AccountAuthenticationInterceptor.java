@@ -37,7 +37,7 @@ public class AccountAuthenticationInterceptor implements HandlerInterceptor {
             @Value("${security.jwt.secret-base64}") String secretBase64,
             SecurityEventRecorder securityEventRecorder) {
         this.jdbcTemplate = jdbcTemplate;
-        this.signingKey = Keys.hmacShaKeyFor(Decoders.BASE64.decode(secretBase64.trim()));
+        this.signingKey = KeyUtils.jwtSigningKey(secretBase64);
         this.securityEventRecorder = securityEventRecorder;
     }
 

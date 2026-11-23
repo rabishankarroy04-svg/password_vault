@@ -1,6 +1,7 @@
 package com.securevault.vault;
 
 import com.securevault.common.AccountPrincipal;
+import com.securevault.common.KeyUtils;
 import com.securevault.threat.ThreatTelemetry;
 import com.securevault.auth.EmailChallengeSender;
 import java.net.URI;
@@ -56,7 +57,7 @@ public class ExternalSharingService {
         this.mail = mail;
         this.telemetry = telemetry;
         this.appUrl = appUrl.trim();
-        this.otpKey = new SecretKeySpec(Base64.getDecoder().decode(key.trim()), "HmacSHA256");
+        this.otpKey = new SecretKeySpec(KeyUtils.decodeOrDerive(key, 32), "HmacSHA256");
     }
 
     public record SentShare(UUID id, UUID credentialId, String recipient, String status,

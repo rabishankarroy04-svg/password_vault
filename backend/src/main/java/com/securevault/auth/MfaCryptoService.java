@@ -1,5 +1,6 @@
 package com.securevault.auth;
 
+import com.securevault.common.KeyUtils;
 import java.net.URLEncoder;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -27,10 +28,7 @@ public class MfaCryptoService {
 
     public MfaCryptoService(@Value("${security.mfa.encryption-key-base64}") String secretBase64) {
         try {
-            byte[] rootKey = Base64.getDecoder().decode(secretBase64.trim());
-            if (rootKey.length < 32) {
-                throw new IllegalArgumentException("MFA_ENCRYPTION_KEY_BASE64 must decode to at least 32 bytes.");
-            }
+            byte[] rootKey = KeyUtils.decodeOrDerive(secretBase64, 32);
             Mac derivation = Mac.getInstance("HmacSHA256");
             derivation.init(new SecretKeySpec(rootKey, "HmacSHA256"));
             byte[] key = derivation.doFinal("SecureVault/TOTP encryption/v1".getBytes(StandardCharsets.UTF_8));

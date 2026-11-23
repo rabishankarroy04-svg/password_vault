@@ -1,5 +1,6 @@
 package com.securevault.vault;
 
+import com.securevault.common.KeyUtils;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.Base64;
@@ -22,8 +23,7 @@ public class VaultCrypto {
     public VaultCrypto(@Value("${security.vault.encryption-key-base64:}") String encoded) {
         if (encoded == null || encoded.isBlank()) { root = null; return; }
         try {
-            root = Base64.getDecoder().decode(encoded.trim());
-            if (root.length < 32) throw new IllegalArgumentException();
+            root = KeyUtils.decodeOrDerive(encoded, 32);
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("Vault encryption key must contain at least 32 random bytes in base64.");
         }

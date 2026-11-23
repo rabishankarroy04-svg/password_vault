@@ -1,6 +1,7 @@
 package com.securevault.auth;
 
 import io.jsonwebtoken.Jwts;
+import com.securevault.common.KeyUtils;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import com.securevault.common.SessionTokenUtils;
@@ -68,16 +69,20 @@ public class LoginService {
         if (secretBase64 == null || secretBase64.isBlank()) {
             throw new IllegalArgumentException("JWT_SECRET_BASE64 must be set to a random secret key.");
         }
-        byte[] keyBytes = Decoders.BASE64.decode(secretBase64.trim());
-        String decodedKey = new String(keyBytes, StandardCharsets.UTF_8);
+        String rawTrimmed = secretBase64.trim();
+        byte[] rawDecoded;
+        try {
+            rawDecoded = Decoders.BASE64.decode(rawTrimmed);
+        } catch (Exception e) {
+            rawDecoded = rawTrimmed.getBytes(StandardCharsets.UTF_8);
+        }
+        String decodedKey = new String(rawDecoded, StandardCharsets.UTF_8);
         if (decodedKey.equals("securevault-team3-development-key-change-me-48-bytes-secret!")
-                || decodedKey.equals("securevault-team3-development-key-change-me-32-bytes!")) {
+                || decodedKey.equals("securevault-team3-development-key-change-me-32-bytes!")
+                || rawTrimmed.contains("change-me")) {
             throw new IllegalArgumentException("The public development JWT key must be replaced.");
         }
-        if (keyBytes.length < 48) {
-            throw new IllegalArgumentException("JWT_SECRET_BASE64 must decode to at least 48 random bytes.");
-        }
-        this.signingKey = Keys.hmacShaKeyFor(keyBytes);
+        this.signingKey = KeyUtils.jwtSigningKey(secretBase64);
         if (expirationSeconds <= 0 || expirationSeconds > 3600) {
             throw new IllegalArgumentException("JWT expiration must be between 1 and 3600 seconds.");
         }
