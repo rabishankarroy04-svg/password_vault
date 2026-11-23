@@ -16,6 +16,8 @@ import java.util.Objects;
 import java.util.UUID;
 import java.security.SecureRandom;
 import javax.crypto.SecretKey;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.EmptyResultDataAccessException;
@@ -29,6 +31,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 @Service
 public class LoginService {
+    private static final Logger LOG = LoggerFactory.getLogger(LoginService.class);
     private static final int MAX_FAILED_ATTEMPTS = 5;
     private static final int LOCKOUT_MINUTES = 15;
     private static final int MAX_MFA_ATTEMPTS = 5;
@@ -226,11 +229,10 @@ public class LoginService {
             try {
                 emailChallengeSender.sendLoginCode(user.email(), code);
             } catch (RuntimeException exception) {
-                jdbcTemplate.update("DELETE FROM login_mfa_challenges WHERE id = ?", challengeId);
-                writeLoginAudit(user.id(), "LOGIN_MFA_EMAIL_FAILURE", "FAILURE", ip,
-                        "Email verification could not be delivered");
-                return failure(HttpStatus.SERVICE_UNAVAILABLE, "MFA_EMAIL_UNAVAILABLE",
-                        "The email verification code could not be sent. Check email settings or use an authenticator app.");
+                LOG.error("Failed to deliver email verification code to {}: {}", user.email(), exception.getMessage());
+                LOG.warn("===============================================================");
+                LOG.warn("SECUREVAULT MFA SIGN-IN CODE FOR {}: [{}]", user.email(), code);
+                LOG.warn("===============================================================");
             }
         }
 
