@@ -7,7 +7,6 @@ import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 @RestController @RequestMapping("/api/account/security")
-@CrossOrigin(origins={"http://localhost:3000","http://127.0.0.1:3000"})
 public class AccountSecurityController {
  private final AccountSecurityService service;private final ClientIpResolver ips;
  public AccountSecurityController(AccountSecurityService service,ClientIpResolver ips){this.service=service;this.ips=ips;}

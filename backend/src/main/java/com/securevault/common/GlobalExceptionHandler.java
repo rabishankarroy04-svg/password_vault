@@ -4,6 +4,7 @@ import com.securevault.auth.AuthController;
 import jakarta.validation.ConstraintViolationException;
 import java.time.Instant;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -19,7 +20,8 @@ public class GlobalExceptionHandler {
         MethodArgumentNotValidException.class,
         HttpMessageNotReadableException.class,
         ConstraintViolationException.class,
-        HandlerMethodValidationException.class
+        HandlerMethodValidationException.class,
+        IllegalArgumentException.class
     })
     public ResponseEntity<ErrorResponse> handleInvalidInput(Exception exception) {
         // Never echo rejected fields, passwords, or the raw request body.
@@ -39,6 +41,12 @@ public class GlobalExceptionHandler {
                 : exception.getReason();
         return ResponseEntity.status(exception.getStatusCode()).body(new ErrorResponse(
                 "ADMIN_OPERATION_REJECTED", message, Instant.now()));
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ErrorResponse> handleUnexpected(Exception exception) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(new ErrorResponse(
+                "INTERNAL_ERROR", "An unexpected error occurred. Please try again later.", Instant.now()));
     }
 
     public record ErrorResponse(String code, String message, Instant timestamp) {}

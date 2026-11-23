@@ -28,6 +28,7 @@ export default function Register({ onRegisterSuccess, onNavigateLogin }) {
 
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [activePolicyModal, setActivePolicyModal] = useState(null);
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState(null);
@@ -301,8 +302,22 @@ export default function Register({ onRegisterSuccess, onNavigateLogin }) {
                     onChange={handleChange}
                   />
                   <span>
-                    I agree to the <a href="#terms" className="inline-link">Terms of Service</a> and{' '}
-                    <a href="#privacy" className="inline-link">Security Policies</a>
+                    I agree to the{' '}
+                    <button
+                      type="button"
+                      className="inline-link-btn"
+                      onClick={() => setActivePolicyModal('terms')}
+                    >
+                      Terms of Service
+                    </button>{' '}
+                    and{' '}
+                    <button
+                      type="button"
+                      className="inline-link-btn"
+                      onClick={() => setActivePolicyModal('security')}
+                    >
+                      Security Policies
+                    </button>
                   </span>
                 </label>
                 {errors.agreeTerms && <span className="field-error">{errors.agreeTerms}</span>}
@@ -332,6 +347,85 @@ export default function Register({ onRegisterSuccess, onNavigateLogin }) {
           </div>
         </div>
       </div>
+
+      {activePolicyModal && (
+        <div className="modal-backdrop" onClick={() => setActivePolicyModal(null)}>
+          <div
+            className="modal-content"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: '600px', maxHeight: '82vh', overflowY: 'auto' }}
+          >
+            <div className="modal-header">
+              <h3>
+                <i
+                  className={activePolicyModal === 'terms' ? 'fa-solid fa-file-contract' : 'fa-solid fa-shield-halved'}
+                  style={{ marginRight: '10px', color: '#38bdf8' }}
+                />
+                {activePolicyModal === 'terms' ? 'Terms of Service' : 'Security Policies & Architecture'}
+              </h3>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setActivePolicyModal(null)}
+                aria-label="Close"
+              >
+                &times;
+              </button>
+            </div>
+            <div style={{ color: 'var(--text-secondary, #94a3b8)', fontSize: '0.88rem', lineHeight: '1.65', marginBottom: '20px' }}>
+              {activePolicyModal === 'terms' ? (
+                <div>
+                  <p><strong>1. Account & Master Password:</strong> You are solely responsible for maintaining the confidentiality of your master password and MFA devices. Master passwords are never stored in plaintext.</p>
+                  <p style={{ marginTop: '12px' }}><strong>2. Server-Side Encryption:</strong> Data stored in SecureVault is encrypted at rest using server-side authenticated encryption (AES-256-GCM). Data is encrypted prior to storage and decrypted on-demand for active authenticated sessions.</p>
+                  <p style={{ marginTop: '12px' }}><strong>3. External Credential Sharing:</strong> When sharing credentials with external recipients, you are responsible for recipient verification and setting appropriate access expirations.</p>
+                  <p style={{ marginTop: '12px' }}><strong>4. Acceptable Use:</strong> You agree not to use the service for unlawful purposes, reverse-engineering, or unauthorized vulnerability scanning.</p>
+                  <p style={{ marginTop: '12px' }}><strong>5. Liability:</strong> The service is provided &quot;AS IS&quot; without warranties of uninterrupted availability or liability for indirect damages.</p>
+                </div>
+              ) : (
+                <div>
+                  <p><strong>1. Authenticated Encryption:</strong> Vault credentials are encrypted server-side with AES-256-GCM using tenant-isolated keys derived via HMAC-SHA256 and unique 96-bit nonces.</p>
+                  <p style={{ marginTop: '12px' }}><strong>2. Additional Authenticated Data (AAD):</strong> Each ciphertext is cryptographically bound to its owner and record UUIDs to eliminate ciphertext transplantation attacks.</p>
+                  <p style={{ marginTop: '12px' }}><strong>3. Session & Token Security:</strong> JWT bearer tokens expire in 15 minutes. Database sessions store SHA-256 token fingerprints rather than raw bearer tokens.</p>
+                  <p style={{ marginTop: '12px' }}><strong>4. Brute-Force & Rate Limiting:</strong> Auth endpoints enforce strict per-IP rate limits (30 req/min for login; 15 req/min for registration). 5 consecutive failed logins trigger an automatic 15-minute account lockout.</p>
+                  <p style={{ marginTop: '12px' }}><strong>5. Breach Verification:</strong> Password health evaluation validates candidates against public breach corpuses using the Have I Been Pwned k-Anonymity API (only the 5-character SHA-1 prefix is ever queried).</p>
+                </div>
+              )}
+            </div>
+            <div className="modal-actions" style={{ display: 'flex', gap: '12px' }}>
+              <button
+                type="button"
+                className="cancel-btn"
+                onClick={() => setActivePolicyModal(null)}
+                style={{ flex: 1, height: '42px', borderRadius: '8px', cursor: 'pointer' }}
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                className="confirm-btn"
+                style={{
+                  flex: 1,
+                  height: '42px',
+                  borderRadius: '8px',
+                  background: '#0284c7',
+                  color: '#ffffff',
+                  fontWeight: '600',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+                onClick={() => {
+                  setFormData((prev) => ({ ...prev, agreeTerms: true }));
+                  if (errors.agreeTerms) setErrors((prev) => ({ ...prev, agreeTerms: '' }));
+                  setActivePolicyModal(null);
+                }}
+              >
+                <i className="fa-solid fa-check" style={{ marginRight: '6px' }} />
+                Accept & Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

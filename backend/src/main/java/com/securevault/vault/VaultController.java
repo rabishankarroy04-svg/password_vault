@@ -10,7 +10,6 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController @Validated
 @RequestMapping("/api/account/vault")
-@CrossOrigin(origins={"http://localhost:3000","http://127.0.0.1:3000"})
 public class VaultController {
     private final VaultService service; private final ClientIpResolver ips; private final BreachService breachService;
     @org.springframework.beans.factory.annotation.Autowired

@@ -39,25 +39,27 @@ public class VaultService {
     public record Category(String id, String name, boolean custom) {}
     private record CategoryRef(int systemId, UUID customId) {}
     private record Stored(UUID id, UUID owner, String data, String nonce, String categoryId,
-            String category, boolean favorite, Instant updatedAt) {}
+            String category, boolean favorite, Instant updatedAt, Integer strengthScore) {}
     private static final String SELECT = "SELECT c.id,v.owner_id,c.encrypted_data,c.encryption_iv," +
             "c.category_id,c.custom_category_id,COALESCE(uc.name,cat.category_name) AS category," +
-            "c.is_favorite,c.updated_at FROM credentials c JOIN vaults v ON v.id=c.vault_id " +
+            "c.is_favorite,c.updated_at,c.strength_score FROM credentials c JOIN vaults v ON v.id=c.vault_id " +
             "JOIN categories cat ON cat.id=c.category_id LEFT JOIN user_vault_categories uc ON uc.id=c.custom_category_id ";
     private List<Stored> stored(String where, Object... args) {
         return db.query(SELECT + where, (r,n) -> new Stored(r.getObject("id",UUID.class),
                 r.getObject("owner_id",UUID.class),r.getString("encrypted_data"),r.getString("encryption_iv"),
                 r.getObject("custom_category_id")==null?"system:"+r.getInt("category_id"):"custom:"+r.getObject("custom_category_id"),
-                r.getString("category"),r.getBoolean("is_favorite"),r.getTimestamp("updated_at").toInstant()), args);
+                r.getString("category"),r.getBoolean("is_favorite"),r.getTimestamp("updated_at").toInstant(),
+                r.getObject("strength_score", Integer.class)), args);
     }
     private Item open(Stored row, boolean reveal) {
         Payload p;
         try { p=json.readValue(crypto.decrypt(row.owner(),row.id(),row.data(),row.nonce()),Payload.class); }
         catch(ResponseStatusException e){throw e;}
         catch(Exception e){throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,"Credential data could not be read.");}
-        var assessment=PasswordHealth.assess(p.password());
+        int score = row.strengthScore() != null ? row.strengthScore() : PasswordHealth.assess(p.password()).score();
+        String strength = score < 40 ? "WEAK" : score < 70 ? "MODERATE" : "STRONG";
         return new Item(row.id(),p.title(),p.url(),p.username(),reveal?p.password():null,reveal?p.notes():null,
-                row.categoryId(),row.category(),row.favorite(),row.updatedAt(),assessment.score(),assessment.strength());
+                row.categoryId(),row.category(),row.favorite(),row.updatedAt(),score,strength);
     }
     Item sharedItem(UUID owner,UUID id){
         var rows=stored("WHERE c.id=? AND v.owner_id=? AND c.deleted_at IS NULL",id,owner);

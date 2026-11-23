@@ -45,6 +45,10 @@ public class RegistrationService {
                 passwordEncoder.encode(password),
                 Base64.getUrlEncoder().withoutPadding().encodeToString(salt));
 
+        Long existingUserCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM users WHERE id <> ?", Long.class, userId);
+        boolean isFirstUser = existingUserCount != null && existingUserCount == 0;
+
         int assignedRoles = jdbcTemplate.update(
                 "INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE role_name = ?",
                 userId,
@@ -53,11 +57,24 @@ public class RegistrationService {
             throw new IllegalStateException("The default ROLE_USER role is missing from the database.");
         }
 
+        if (isFirstUser) {
+            int adminRoleAssigned = jdbcTemplate.update(
+                    "INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE role_name = ?",
+                    userId,
+                    "ROLE_ADMIN");
+            if (adminRoleAssigned != 1) {
+                throw new IllegalStateException("The ROLE_ADMIN role is missing from the database.");
+            }
+        }
+
         String safeIp = ipAddress == null || ipAddress.isBlank() ? "unknown"
                 : ipAddress.length() <= 45 ? ipAddress : ipAddress.substring(0, 45);
+        String details = isFirstUser
+                ? "Self-service registration (first account provisioned as administrator)"
+                : "Self-service registration";
         jdbcTemplate.update("INSERT INTO audit_logs (user_id, action_type, status, ip_address, details) "
-                        + "VALUES (?, 'ACCOUNT_REGISTERED', 'SUCCESS', ?, 'Self-service registration')",
-                userId, safeIp);
+                        + "VALUES (?, 'ACCOUNT_REGISTERED', 'SUCCESS', ?, ?)",
+                userId, safeIp, details);
 
         return new AuthController.RegistrationResponse(userId, username, email, Instant.now());
     }

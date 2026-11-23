@@ -9,7 +9,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 @RestController @Validated @RequestMapping("/api/account/shares")
-@CrossOrigin(origins={"http://localhost:3000","http://127.0.0.1:3000"})
 public class SharingController {
     private final SharingService service;private final ClientIpResolver ips;
     public SharingController(SharingService service,ClientIpResolver ips){this.service=service;this.ips=ips;}

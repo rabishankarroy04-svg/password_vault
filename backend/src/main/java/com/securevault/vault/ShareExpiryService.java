@@ -17,6 +17,29 @@ public class ShareExpiryService {
             telemetry.audit(s[2],"SHARE_EXPIRED","SUCCESS","system","Shared access expired; credential values omitted",
                     Map.of("shareRef",s[0].toString(),"credentialRef",s[1].toString(),"recipientRef",s[3].toString(),"source","expiry-maintenance"));
         }
-        return rows.size();
+
+        var extRows = db.query("""
+                SELECT id, sender_id, credential_id, recipient FROM external_shares
+                WHERE expires_at <= CURRENT_TIMESTAMP AND delivery = 'SUBMITTED'
+                  AND revoked_at IS NULL AND consumed_at IS NULL
+                ORDER BY expires_at LIMIT 200 FOR UPDATE SKIP LOCKED
+                """, (r, n) -> new Object[]{
+                    r.getObject("id", UUID.class),
+                    r.getObject("sender_id", UUID.class),
+                    r.getObject("credential_id", UUID.class),
+                    r.getString("recipient")
+                });
+        for (Object[] s : extRows) {
+            UUID shareId = (UUID) s[0];
+            UUID senderId = (UUID) s[1];
+            UUID credId = (UUID) s[2];
+            String recipient = (String) s[3];
+            db.update("UPDATE external_shares SET delivery='EXPIRED', otp_hash=NULL, grant_hash=NULL WHERE id=?", shareId);
+            telemetry.audit(senderId, "EXTERNAL_SHARE_EXPIRED", "SUCCESS", "system",
+                    "External share access expired; secret values omitted",
+                    Map.of("shareRef", shareId.toString(), "credentialRef", credId.toString(),
+                            "recipientRef", recipient, "source", "expiry-maintenance"));
+        }
+        return rows.size() + extRows.size();
     }
 }

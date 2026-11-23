@@ -68,6 +68,19 @@ class AuthInputValidationTest {
     }
 
     @Test
+    void illegalArgumentExceptionReturnsGenericBadRequest() throws Exception {
+        when(registrationService.register(anyString(), anyString(), anyString(), anyString()))
+                .thenThrow(new IllegalArgumentException("Password exceeds BCrypt's 72-byte limit."));
+
+        mvc.perform(post("/api/registration/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"alice\",\"email\":\"alice@example.com\",\"password\":\"valid-pwd-length\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.message").value("Request is invalid. Check the supplied fields."));
+    }
+
+    @Test
     void acceptsExactly72Utf8BytesAndSerializesTheTokenAndExpiry() throws Exception {
         String password = "\u00e9".repeat(36);
         Instant expiresAt = Instant.parse("2026-10-15T12:00:00Z");
