@@ -56,7 +56,7 @@ public class ExternalSharingService {
         this.vault = vault;
         this.mail = mail;
         this.telemetry = telemetry;
-        this.appUrl = appUrl.trim();
+        this.appUrl = (appUrl == null || appUrl.isBlank()) ? "" : (appUrl.startsWith("http") ? appUrl.trim() : "https://" + appUrl.trim());
         this.otpKey = new SecretKeySpec(KeyUtils.decodeOrDerive(key, 32), "HmacSHA256");
     }
 

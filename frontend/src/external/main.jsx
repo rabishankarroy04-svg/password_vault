@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { buildApiUrl } from '../services/apiBase';
 import '../components/SecurityWorkspace.css';
 import './external.css';
 
@@ -8,7 +9,7 @@ window.history.replaceState(null, '', window.location.pathname);
 const validLink = /^[A-Za-z0-9_-]{43}$/.test(token);
 
 async function request(action, fields = {}) {
-  const response = await fetch('/api/external-shares/' + action, {
+  const response = await fetch(buildApiUrl(`/api/external-shares/${action}`), {
     method: 'POST', credentials: 'omit', cache: 'no-store', referrerPolicy: 'no-referrer',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token, ...fields }),

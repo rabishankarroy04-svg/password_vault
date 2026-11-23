@@ -3,6 +3,8 @@
  * Handles authenticated communication with the Spring Boot backend (/api/account/*).
  */
 
+import { buildApiUrl } from './apiBase';
+
 const DEVICE_KEY = 'securevault_device_fingerprint_v1';
 
 export const clientDeviceId = () => {
@@ -55,7 +57,7 @@ export async function vaultRequest(path, options = {}) {
     headers['Content-Type'] = 'application/json';
   }
 
-  const res = await fetch(normalizedPath, {
+  const res = await fetch(buildApiUrl(normalizedPath), {
     ...options,
     headers,
   });

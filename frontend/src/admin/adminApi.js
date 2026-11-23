@@ -1,3 +1,4 @@
+import { buildApiUrl } from '../services/apiBase';
 const TOKEN_KEY = 'securevault_admin_jwt';
 const USER_KEY = 'securevault_admin_user';
 const DEVICE_KEY = 'securevault_device_fingerprint_v1';
@@ -69,7 +70,7 @@ const request = async (path, { token = readStoredAdminToken(), ...options } = {}
 
   let response;
   try {
-    response = await fetch(path, { ...options, headers, cache: 'no-store' });
+    response = await fetch(buildApiUrl(path), { ...options, headers, cache: 'no-store' });
   } catch {
     throw new AdminApiError('Cannot reach SecureVault. Check that the backend and database are running.');
   }

@@ -16,9 +16,12 @@ const clientDeviceId = () => {
   }
 };
 
+import { buildApiUrl } from './apiBase';
+export const apiUrl = buildApiUrl;
+
 export const registerUser = async ({ username, email, password }) => {
   try {
-    const response = await fetch('/api/registration/register', {
+    const response = await fetch(apiUrl('/api/registration/register'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -55,7 +58,7 @@ export const loginUser = async ({ identifier, password }) => {
     sessionStorage.removeItem('securevault_jwt');
     sessionStorage.removeItem('securevault_user');
 
-    const response = await fetch('/api/login', {
+    const response = await fetch(apiUrl('/api/login'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -113,7 +116,7 @@ export const loginUser = async ({ identifier, password }) => {
 
 export const completeLoginMfa = async ({ challengeId, code }) => {
   try {
-    const response = await fetch('/api/login/mfa', {
+    const response = await fetch(apiUrl('/api/login/mfa'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -154,7 +157,7 @@ async function accountMfaRequest(path, options = {}) {
   const headers = new Headers(options.headers || {});
   if (token) headers.set('Authorization', `Bearer ${token}`);
   if (options.body != null) headers.set('Content-Type', 'application/json');
-  const response = await fetch(path, { ...options, headers, cache: 'no-store' });
+  const response = await fetch(apiUrl(path), { ...options, headers, cache: 'no-store' });
   const data = response.status === 204 ? null : await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data?.message || data?.error || 'Security settings could not be loaded.');
   return data;
@@ -187,7 +190,7 @@ export const logoutUser = async () => {
   sessionStorage.removeItem('securevault_jwt');
   sessionStorage.removeItem('securevault_user');
   if (token) {
-    await fetch('/api/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
+    await fetch(apiUrl('/api/logout'), { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
       .catch(() => {});
   }
 };
