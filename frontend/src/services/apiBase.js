@@ -1,7 +1,11 @@
 export function getApiBase() {
-  const raw = import.meta.env.VITE_API_BASE_URL || '';
+  let raw = (import.meta.env.VITE_API_BASE_URL || '').trim();
   if (!raw) return '';
-  return (raw.startsWith('http') ? raw : `https://${raw}`).replace(/\/+$/, '');
+  // If the host is an internal unqualified hostname (e.g. from Render fromService without a dot), append .onrender.com
+  if (!raw.includes('.')) {
+    raw = `${raw}.onrender.com`;
+  }
+  return (raw.startsWith('http://') || raw.startsWith('https://') ? raw : `https://${raw}`).replace(/\/+$/, '');
 }
 
 export function buildApiUrl(path) {
