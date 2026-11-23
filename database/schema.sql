@@ -39,18 +39,6 @@ CREATE TABLE IF NOT EXISTS user_roles (
     PRIMARY KEY (user_id, role_id)
 );
 
-CREATE TABLE IF NOT EXISTS sessions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    device_id UUID NULL,
-    session_token VARCHAR(500) NOT NULL UNIQUE,
-    ip_address VARCHAR(45) NOT NULL,
-    user_agent TEXT NULL,
-    is_revoked BOOLEAN NOT NULL DEFAULT FALSE,
-    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE IF NOT EXISTS devices (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -60,6 +48,18 @@ CREATE TABLE IF NOT EXISTS devices (
     last_active TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_user_device UNIQUE (user_id, device_fingerprint)
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    device_id UUID NULL REFERENCES devices(id) ON DELETE SET NULL,
+    session_token VARCHAR(500) NOT NULL UNIQUE,
+    ip_address VARCHAR(45) NOT NULL,
+    user_agent TEXT NULL,
+    is_revoked BOOLEAN NOT NULL DEFAULT FALSE,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS login_mfa_challenges (
@@ -75,21 +75,6 @@ CREATE TABLE IF NOT EXISTS login_mfa_challenges (
     device_fingerprint VARCHAR(64) NOT NULL,
     CHECK ((method = 'EMAIL' AND code_hash IS NOT NULL) OR (method = 'TOTP' AND code_hash IS NULL))
 );
-
--- Keep existing installations compatible while linking browser sessions to
--- the device record created at login. Revoking a device can then revoke every
--- active session created from that device.
-ALTER TABLE sessions ADD COLUMN IF NOT EXISTS device_id UUID NULL;
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'fk_sessions_device_id'
-    ) THEN
-        ALTER TABLE sessions
-            ADD CONSTRAINT fk_sessions_device_id
-            FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE SET NULL;
-    END IF;
-END $$;
 
 -- ============================================================================
 -- 2. PASSWORD VAULT & CREDENTIAL MODULE
@@ -543,11 +528,8 @@ BEGIN
  RETURN NEW;
 END $$ LANGUAGE plpgsql;
 
-DO $$ BEGIN
- IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname='trg_securevault_account_notifications' AND tgrelid='audit_logs'::regclass) THEN
-  CREATE TRIGGER trg_securevault_account_notifications AFTER INSERT ON audit_logs FOR EACH ROW EXECUTE FUNCTION securevault_notify_account_activity();
- END IF;
-END $$;
+DROP TRIGGER IF EXISTS trg_securevault_account_notifications ON audit_logs;
+CREATE TRIGGER trg_securevault_account_notifications AFTER INSERT ON audit_logs FOR EACH ROW EXECUTE FUNCTION securevault_notify_account_activity();
 
 CREATE OR REPLACE FUNCTION securevault_notify_security_signal() RETURNS TRIGGER AS $$
 BEGIN
@@ -558,11 +540,8 @@ BEGIN
  RETURN NEW;
 END $$ LANGUAGE plpgsql;
 
-DO $$ BEGIN
- IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname='trg_securevault_security_notifications' AND tgrelid='security_events'::regclass) THEN
-  CREATE TRIGGER trg_securevault_security_notifications AFTER INSERT ON security_events FOR EACH ROW EXECUTE FUNCTION securevault_notify_security_signal();
- END IF;
-END $$;
+DROP TRIGGER IF EXISTS trg_securevault_security_notifications ON security_events;
+CREATE TRIGGER trg_securevault_security_notifications AFTER INSERT ON security_events FOR EACH ROW EXECUTE FUNCTION securevault_notify_security_signal();
 
 
 CREATE TABLE IF NOT EXISTS external_shares (

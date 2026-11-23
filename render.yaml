@@ -11,6 +11,8 @@ services:
       - key: SERVER_ADDRESS
         value: 0.0.0.0
       - key: SPRING_SQL_INIT_MODE
+        value: never
+      - key: SECUREVAULT_SCHEMA_AUTO_INIT
         value: always
       - key: DB_HOST
         fromDatabase:
