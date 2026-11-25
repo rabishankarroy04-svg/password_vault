@@ -227,28 +227,28 @@ public class EmailChallengeSender {
     }
 
     private void sendEmail(String to, String subject, String plain, String html) {
-        // 1. Prefer Resend HTTP API (Port 443 - works on Render Free tier)
-        if (!resendApiKey.isBlank()) {
-            try {
-                sendViaResend(to, subject, plain, html);
-                return;
-            } catch (Exception ex) {
-                LOG.error("Resend API delivery failed for {}: {}", to, ex.getMessage());
-                if (brevoApiKey.isBlank() && !hasSmtpTransport()) {
-                    throw new RuntimeException("Resend API delivery failed: " + ex.getMessage(), ex);
-                }
-            }
-        }
-
-        // 2. Try Brevo HTTP API (Port 443 - works on Render Free tier)
+        // 1. Prefer Brevo HTTP API (Port 443 - sends to ANY recipient without needing a custom domain)
         if (!brevoApiKey.isBlank()) {
             try {
                 sendViaBrevo(to, subject, plain, html);
                 return;
             } catch (Exception ex) {
                 LOG.error("Brevo API delivery failed for {}: {}", to, ex.getMessage());
-                if (!hasSmtpTransport()) {
+                if (resendApiKey.isBlank() && !hasSmtpTransport()) {
                     throw new RuntimeException("Brevo API delivery failed: " + ex.getMessage(), ex);
+                }
+            }
+        }
+
+        // 2. Try Resend HTTP API (Port 443 - works on Render Free tier)
+        if (!resendApiKey.isBlank()) {
+            try {
+                sendViaResend(to, subject, plain, html);
+                return;
+            } catch (Exception ex) {
+                LOG.error("Resend API delivery failed for {}: {}", to, ex.getMessage());
+                if (!hasSmtpTransport()) {
+                    throw new RuntimeException("Resend API delivery failed: " + ex.getMessage(), ex);
                 }
             }
         }
@@ -340,6 +340,7 @@ public class EmailChallengeSender {
                 .timeout(Duration.ofSeconds(10))
                 .header("api-key", brevoApiKey)
                 .header("Content-Type", "application/json")
+                .header("accept", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
                 .build();
 
