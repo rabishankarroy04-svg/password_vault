@@ -43,8 +43,8 @@ public class AdminSecurityConfiguration {
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .toList());
-        if (!patterns.contains("https://*.onrender.com")) {
-            patterns.add("https://*.onrender.com");
+        if (!patterns.contains("https://securevault-frontend-*.onrender.com")) {
+            patterns.add("https://securevault-frontend-*.onrender.com");
         }
         if (!patterns.contains("http://localhost:*")) {
             patterns.add("http://localhost:*");

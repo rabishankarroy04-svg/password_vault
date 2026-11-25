@@ -9,4 +9,4 @@ WORKDIR /app
 COPY --from=build /app/target/securevault-backend-0.0.1-SNAPSHOT.jar app.jar
 USER 10001:10001
 EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75.0", "-XX:+ExitOnOutOfMemoryError", "-jar", "app.jar"]
