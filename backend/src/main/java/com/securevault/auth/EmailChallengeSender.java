@@ -234,7 +234,7 @@ public class EmailChallengeSender {
                 return;
             } catch (Exception ex) {
                 LOG.error("Resend API delivery failed for {}: {}", to, ex.getMessage());
-                if (!hasSmtpTransport()) {
+                if (brevoApiKey.isBlank() && !hasSmtpTransport()) {
                     throw new RuntimeException("Resend API delivery failed: " + ex.getMessage(), ex);
                 }
             }
