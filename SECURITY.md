@@ -1,65 +1,108 @@
 # SecureVault Security Policy
 
-**Effective Date:** November 23, 2026  
-**Document Version:** 1.0  
+**Effective Date:** November 25, 2026  
+**Document Version:** 1.1  
 **Scope:** SecureVault Unified Application (Spring Boot Backend, React Frontend, PostgreSQL Database)
 
 ---
 
 ## 1. Security Architecture & Threat Model
 
-SecureVault provides an encrypted credential management platform designed with multi-layered defense-in-depth principles:
+SecureVault is built upon multi-layered defense-in-depth principles to protect sensitive credentials against unauthorized disclosure, tampering, side-channel attacks, and infrastructure compromise.
 
-### 1.1 Cryptographic Architecture
-- **Vault Credential Encryption:** Credentials (username, password, URL, notes) are encrypted server-side using **AES-256-GCM (Galois/Counter Mode)** with 96-bit unique cryptographic nonces.
-- **Key Isolation & Derivation:** Vault encryption keys are never stored directly in the database. A root secret (`VAULT_ENCRYPTION_KEY_BASE64`) derives individual, tenant-isolated sub-keys for each user using `HMAC-SHA256("SecureVault/credential/v1/" + owner_uuid)`.
-- **Ciphertext Integrity & AAD Binding:** Every encrypted credential employs Additional Authenticated Data (AAD) binding `("SecureVault/credential/v1/" + owner + "/" + credential)`. This cryptographically prevents ciphertext transplantation across accounts or records.
-- **Password Hashing:** User passwords are encrypted using **BCrypt** with unique cryptographic salts, enforcing a strict 72-byte ceiling to prevent truncation bypasses.
-- **MFA Seed Encryption:** TOTP seeds are encrypted at rest with AES-256-GCM using keys derived from a distinct `MFA_ENCRYPTION_KEY_BASE64`.
-
-### 1.2 Authentication & Session Management
-- **Stateless Bearer Tokens:** Authenticated sessions use signed JSON Web Tokens (JWT) signed via HMAC-SHA384/512 with a minimum 48-byte random key requirement.
-- **Token Fingerprinting:** Raw JWTs are never stored in the database. Database sessions only store SHA-256 digests (`SessionTokenUtils.fingerprint()`).
-- **Session Revocation:** Logout explicitly marks the active database session revoked (`is_revoked = TRUE`).
-- **Timing-Attack Resistance:** Unregistered user lookups trigger synthetic BCrypt hash computations (`dummyHash`) to eliminate user-enumeration side-channel timing discrepancies.
-
-### 1.3 Threat Detection & Brute-Force Defense
-- **Per-IP Rate Limiting:** Global rate-limiting filter (`AuthRateLimitFilter`) strictly limits `/api/login` (30 req/min) and `/api/registration` (15 req/min).
-- **Concurrency & DoS Safeguards:** Semaphores cap concurrent authentication requests to 16 in-flight connections to defend against slowloris exhaustion. Request bodies are limited to 8 KiB.
-- **Account Lockout:** 5 consecutive failed login attempts trigger an automatic 15-minute account lockout.
-- **Risk-Based Step-Up Verification:** Logins from new IP addresses or unregistered devices without TOTP MFA require mandatory 6-digit email OTP challenges.
-
-### 1.4 Least Privilege & Database Security
-- The application executes using a restricted PostgreSQL role (`securevault_app`) with minimal table-level permissions.
-- Audit logs and security event logs are structurally write-protected against retroactive tampering.
-- All database interactions use parameterized SQL statements via `JdbcTemplate` to eliminate SQL injection vulnerabilities.
+```
+                           ┌─────────────────────────────────────────┐
+                           │          Client Web Browser             │
+                           └────────────────────┬────────────────────┘
+                                                │ TLS 1.3 (HTTPS)
+                                                ▼
+                           ┌─────────────────────────────────────────┐
+                           │   Cloud Reverse Proxy / Edge Router     │
+                           └────────────────────┬────────────────────┘
+                                                │ X-Forwarded-For + Sanitized IP
+                                                ▼
+       ┌──────────────────────────────────────────────────────────────────────────────────┐
+       │                        Spring Boot Application Boundary                          │
+       │                                                                                  │
+       │  ┌────────────────────────┐  ┌───────────────────────┐  ┌─────────────────────┐  │
+       │  │  AuthRateLimitFilter   │  │   ClientIpResolver    │  │ SecurityFilterChain │  │
+       │  │ (30 req/min; 16 conc.) │  │ (Trusted Proxy CIDRs) │  │ (JWT Fingerprinting)│  │
+       │  └───────────┬────────────┘  └───────────┬───────────┘  └──────────┬──────────┘  │
+       │              └───────────────────────────┼─────────────────────────┘             │
+       │                                          ▼                                       │
+       │                        ┌───────────────────────────────────┐                     │
+       │                        │   VaultEncryptionService (GCM)    │                     │
+       │                        │  HMAC-SHA256 Sub-Key Derivation   │                     │
+       │                        │  AAD Binding (Owner + Record ID)  │                     │
+       │                        └─────────────────┬─────────────────┘                     │
+       └──────────────────────────────────────────┼───────────────────────────────────────┘
+                                                  ▼
+                                ┌───────────────────────────────────┐
+                                │       PostgreSQL 16 Storage       │
+                                │   Restricted 'securevault' Role   │
+                                │   Encrypted Ciphertext & Nonces   │
+                                └───────────────────────────────────┘
+```
 
 ---
 
-## 2. Server-Side Encryption Disclosure
+## 2. Cryptographic Specifications
+
+### 2.1 Vault Credential Encryption (AES-256-GCM)
+- **Algorithm:** AES-256 in Galois/Counter Mode (GCM) with 128-bit authentication tag verification.
+- **Cryptographic Nonce:** 96-bit unique pseudo-random initialization vector (IV) generated via `java.security.SecureRandom` for every encrypted field. Nonces are never reused.
+- **Tenant Key Derivation:** Master vault key (`VAULT_ENCRYPTION_KEY_BASE64`) derives individual, tenant-isolated sub-keys for each user using:
+  $$\text{SubKey} = \text{HMAC-SHA256}(\text{RootVaultKey}, \text{"SecureVault/credential/v1/"} \parallel \text{UserUUID})$$
+- **Additional Authenticated Data (AAD) Binding:** Every credential encryption operation binds context metadata:
+  $$\text{AAD} = \text{"SecureVault/credential/v1/"} \parallel \text{OwnerUUID} \parallel \text{"/"} \parallel \text{CredentialUUID}$$
+  This cryptographically guarantees that ciphertext cannot be copied or transplanted between different accounts or records.
+
+### 2.2 Password Hashing & Side-Channel Defense
+- **BCrypt:** Master user passwords are encrypted using salted BCrypt with recommended work factors.
+- **72-Byte Truncation Guard:** Inputs are verified against a strict 72-byte ceiling to eliminate BCrypt prefix-truncation vulnerabilities.
+- **Synthetic BCrypt Calculation:** In authentication lookups where a username does not exist, the backend executes a synthetic BCrypt verification against a pre-computed dummy hash (`dummyHash`). This normalizes server response times and prevents username enumeration via side-channel timing analysis.
+
+### 2.3 TOTP MFA Seed Encryption
+- Authenticator seeds are encrypted at rest using AES-256-GCM with sub-keys derived from an isolated `MFA_ENCRYPTION_KEY_BASE64`.
+
+---
+
+## 3. Network & Edge Security
+
+### 3.1 Reverse Proxy & IP Spoofing Protections
+To prevent attackers from spoofing their IP address via fabricated `X-Forwarded-For` HTTP headers:
+- `ClientIpResolver` inspects incoming connection sockets against `security.trusted-proxy-cidrs` (`127.0.0.1/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16`).
+- `X-Forwarded-For` headers are only trusted if the immediate upstream client matches a designated trusted proxy CIDR. Untrusted connections fall back strictly to the remote socket IP address.
+
+### 3.2 Outbound Email Security over HTTPS (Port 443)
+To overcome cloud provider SMTP blocking and prevent plaintext SMTP eavesdropping or STARTTLS stripping:
+- Transactional MFA verification codes are transmitted over authenticated HTTPS REST APIs (**Brevo API v3** / **Resend API v1**).
+- Plaintext credentials and master passwords are never included in outbound email communications.
+
+### 3.3 Strict Rate Limiting & Denial-of-Service Defense
+- **Per-IP Rate Limiting:** In-memory token bucket filters restrict `/api/login` to a maximum of 30 requests per minute and `/api/registration` to 15 requests per minute.
+- **Concurrency Caps:** A semaphore restricts concurrent in-flight authentication operations to 16 simultaneous requests to defend against Slowloris and thread pool exhaustion.
+- **Payload Constraints:** Authentication request body sizes are strictly capped at 8 KiB.
+- **Account Lockouts:** 5 consecutive failed login attempts trigger an automatic 15-minute account lockout.
+
+---
+
+## 4. Server-Side Encryption Disclosure
 
 > [!IMPORTANT]
-> **Trust Boundary Notice:** SecureVault implements **Server-Side Authenticated Encryption (SSE)**.
-> While data is encrypted at rest in PostgreSQL and encrypted in transit via TLS, the encryption keys are managed by the server environment. Server operators and administrators with access to the runtime memory and root environment keys possess the technical capability to decrypt stored secrets.
-> Organizations requiring zero-knowledge/client-side end-to-end encryption must implement browser-side key derivation prior to submission.
+> **Server-Side Authenticated Encryption Notice:**
+> SecureVault utilizes **Server-Side Authenticated Encryption (SSE)**.
+> All vault data is encrypted before writing to PostgreSQL and decrypted on-the-fly for authorized authenticated sessions. However, encryption keys and runtime memory reside on the host application server. Operators possessing direct access to server memory, runtime container environment variables, and root encryption keys possess the technical capability to decrypt data.
+> Organizations requiring zero-knowledge architectures must implement client-side key derivation and client-side encryption before payload transmission.
 
 ---
 
-## 3. Vulnerability Reporting & Responsible Disclosure
+## 5. Vulnerability Reporting & Responsible Disclosure
 
-We welcome responsible security research and vulnerability reporting.
+We take security vulnerabilities seriously and appreciate responsible disclosure.
 
-If you identify a security vulnerability within SecureVault, please follow these guidelines:
-
+If you discover a security flaw or vulnerability within SecureVault:
 1. **Do NOT open a public GitHub issue.**
-2. Send a detailed report to the security contact: **security@example.com** (or contact the repository administrator directly).
-3. Provide actionable reproduction steps, impact assessment, and proof of concept where applicable.
-4. Allow reasonable time (typically 30–90 days) for review, patching, and verification prior to public disclosure.
-
----
-
-## 4. Security Best Practices for Operators
-
-1. **Enforce HTTPS:** SecureVault must always be deployed behind an SSL/TLS reverse proxy (Caddy, NGINX, Cloudflare) with HSTS enabled.
-2. **Key Rotation & Protection:** Store `.env` configuration securely outside web roots. Do not check `.env` into source control.
-3. **SMTP Security:** Ensure outbound email uses STARTTLS with verified certificate chains (`SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_CHECKSERVERIDENTITY=true`).
+2. Send an encrypted or confidential report directly to: **rabishankarroy04@gmail.com**
+3. Include detailed reproduction steps, impact assessment, and proof-of-concept code where applicable.
+4. Please allow reasonable time (30–90 days) for review, remediation, and verification before disclosing publicly.
