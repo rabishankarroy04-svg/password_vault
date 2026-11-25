@@ -72,11 +72,11 @@ services:
     name: securevault-frontend
     runtime: static
     rootDir: frontend
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --no-save @rolldown/binding-linux-x64-gnu@1.2.15 && npm run build
     staticPublishPath: dist
     envVars:
       - key: NODE_VERSION
-        value: 20.18.0
+        value: 22.14.0
     headers:
       - path: /*
         name: X-Frame-Options
